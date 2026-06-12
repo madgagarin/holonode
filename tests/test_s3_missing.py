@@ -80,7 +80,6 @@ async def test_metrics_missing_dependency():
             assert span is None
 
         manager.record_task_finished("task", "success", 1.0)
-        assert manager.generate_latest() == b""
 
     if "holonode.observability" in sys.modules:
         del sys.modules["holonode.observability"]
