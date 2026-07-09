@@ -28,13 +28,14 @@ mypy src/holonode
 ## Testing
 
 Run the worker-specific tests:
+
 ```bash
 pytest
 ```
 
 ## Adding New Features
 
--   If adding a new configuration parameter, update `src/holonode/config.py`.
--   If changing the protocol interaction, ensure compatibility with the `rxon` package.
--   Always update the `README.md` if the user-facing API changes.
--   All new code must have type hints.
+- If adding a new configuration parameter, update `src/holonode/config.py`.
+- If changing the protocol interaction, ensure compatibility with the `rxon` package.
+- Always update the `README.md` if the user-facing API changes.
+- All new code must have type hints.
