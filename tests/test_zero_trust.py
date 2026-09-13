@@ -4,10 +4,10 @@
 #
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-import time
+from time import time
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from pytest import fixture, mark
 from rxon.models import Heartbeat, TaskResult, WorkerRegistration
 from rxon.security import sign_payload
 
@@ -15,7 +15,7 @@ from holonode.config import WorkerConfig
 from holonode.worker import Worker
 
 
-@pytest.fixture
+@fixture
 def secure_config():
     config = WorkerConfig()
     config.WORKER_ID = "secure-worker"
@@ -23,7 +23,7 @@ def secure_config():
     return config
 
 
-@pytest.fixture
+@fixture
 def worker(secure_config):
     return Worker(config=secure_config)
 
@@ -32,10 +32,10 @@ def test_sign_payload_if_needed_strips_none(worker, secure_config):
     """Test that _sign_payload_if_needed strips None values before signing."""
     payload = {
         "field1": "value1",
-        "field2": None,  # Should be stripped
+        "field2": None,
         "nested": {
             "sub1": "value2",
-            "sub2": None,  # Should be stripped
+            "sub2": None,
         },
     }
 
@@ -60,7 +60,7 @@ def test_sign_payload_if_needed_ignores_fields(worker, secure_config):
     assert security.signature == expected_signature
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_create_registration_payload_has_zero_trust(worker):
     """Test that WorkerRegistration payload is fully signed and timestamped."""
     worker._active_skills = []
@@ -69,14 +69,14 @@ async def test_create_registration_payload_has_zero_trust(worker):
 
     assert isinstance(reg_payload, WorkerRegistration)
     assert reg_payload.timestamp is not None
-    assert abs(time.time() - reg_payload.timestamp) < 5.0
+    assert abs(time() - reg_payload.timestamp) < 5.0
 
     assert reg_payload.security is not None
     assert reg_payload.security.signer_id == worker._config.WORKER_ID
     assert reg_payload.security.signature is not None
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_create_heartbeat_payload_has_zero_trust(worker):
     """Test that Heartbeat payload is fully signed and timestamped."""
     worker._active_skills = []
@@ -85,21 +85,20 @@ async def test_create_heartbeat_payload_has_zero_trust(worker):
 
     assert isinstance(hb_payload, Heartbeat)
     assert hb_payload.timestamp is not None
-    assert abs(time.time() - hb_payload.timestamp) < 5.0
+    assert abs(time() - hb_payload.timestamp) < 5.0
 
     assert hb_payload.security is not None
     assert hb_payload.security.signer_id == worker._config.WORKER_ID
     assert hb_payload.security.signature is not None
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_result_success_has_zero_trust(worker):
     """Test that a successful TaskResult is signed and timestamped."""
     mock_client = MagicMock()
     mock_client.send_result = AsyncMock(return_value=True)
     worker._clients = [mock_client]
 
-    # Mock a successful skill handler
     worker._skill_handlers["dummy_skill"] = {
         "func": AsyncMock(return_value={"status": "success", "data": {"res": 1}}),
         "info": MagicMock(events_schema={}, output_schema=None),
@@ -119,7 +118,7 @@ async def test_task_result_success_has_zero_trust(worker):
     assert result_obj.security.signer_id == worker._config.WORKER_ID
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_event_has_zero_trust(worker):
     """Test that events are signed and timestamped correctly."""
     mock_client = MagicMock()
@@ -138,7 +137,6 @@ async def test_event_has_zero_trust(worker):
 
     task_data_raw = {"job_id": "j1", "task_id": "t1", "type": "dummy_skill", "params": {}, "client": mock_client}
 
-    # Mock process_result to avoid S3 calls
     worker._s3_manager.process_result = AsyncMock(return_value=({"res": "ok"}, {}))
 
     await worker._process_task(task_data_raw)
@@ -155,31 +153,27 @@ async def test_event_has_zero_trust(worker):
 def test_sign_payload_if_needed_no_token():
     """Test that signing is skipped if token is dummy or empty."""
     config = WorkerConfig()
-    config.WORKER_TOKEN = "your-secret-worker-token"  # Dummy
+    config.WORKER_TOKEN = "your-secret-worker-token"
     worker = Worker(config=config)
 
     payload = {"a": 1}
     assert worker._sign_payload_if_needed(payload) is None
 
-    config.WORKER_TOKEN = ""  # Empty
+    config.WORKER_TOKEN = ""
     worker = Worker(config=config)
     assert worker._sign_payload_if_needed(payload) is None
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_result_error_has_zero_trust(worker):
-    # We will simulate an error during _process_task
-    # Because _process_task calls client.send_result, we mock the client.
     mock_client = MagicMock()
     mock_client.send_result = AsyncMock(return_value=True)
     worker._clients = [mock_client]
 
-    # Provide a bad payload that causes a ValueError
     task_data_raw = {"job_id": "j1", "task_id": "t1", "type": "non_existent_skill", "params": {}, "client": mock_client}
 
     await worker._process_task(task_data_raw)
 
-    # Verify send_result was called
     assert mock_client.send_result.called
     result_obj = mock_client.send_result.call_args[0][0]
 

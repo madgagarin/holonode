@@ -23,7 +23,6 @@ try:
     from opentelemetry.trace import Status, StatusCode
     from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
-    # Set global propagator to W3C TraceContext
     set_global_textmap(TraceContextTextMapPropagator())
 
     try:

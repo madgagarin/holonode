@@ -4,16 +4,16 @@
 #
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-import asyncio
+from asyncio import CancelledError
 
-import pytest
+from pytest import mark, raises
 from rxon import Transport
 from rxon.models import TaskPayload
 
 from holonode.worker import Worker
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_validate_config_warns_on_unused_skill_type_limits(mocker):
     """
     Tests that _validate_config warns when a task type limit is defined
@@ -28,8 +28,6 @@ async def test_validate_config_warns_on_unused_skill_type_limits(mocker):
 
     worker._validate_skill_types()
 
-    # The Skill decorator might also trigger a warning if 'cpu_task' type is not in limits.
-    # We check that our specific configuration warning is present.
     config_warning = (
         "Configuration warning: A limit is defined for skill type 'gpu', but no tasks are registered with this type."
     )
@@ -37,7 +35,7 @@ async def test_validate_config_warns_on_unused_skill_type_limits(mocker):
     assert any_match, f"Expected warning '{config_warning}' not found in logger calls."
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_schedule_heartbeat_debounce(mocker):
     """
     Tests that _schedule_heartbeat_debounce schedules heartbeats for all clients.
@@ -47,12 +45,11 @@ async def test_schedule_heartbeat_debounce(mocker):
     mock_create_task = mocker.patch("holonode.worker.create_task")
 
     worker._schedule_heartbeat_debounce()
-    # It should call create_task for the transport
     assert mock_create_task.called
-    mock_create_task.call_args[0][0].close()  # Avoid RuntimeWarning
+    mock_create_task.call_args[0][0].close()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_poll_for_tasks_receives_task(mocker):
     """Tests that _poll_for_tasks correctly processes a received task."""
     client = mocker.AsyncMock(spec=Transport)
@@ -63,7 +60,6 @@ async def test_poll_for_tasks_receives_task(mocker):
 
     worker = Worker()
 
-    # Register a dummy task so the worker is not "busy" (has supported tasks)
     @worker.skill("successful_task")
     def dummy_handler(params):
         pass
@@ -84,7 +80,7 @@ async def test_poll_for_tasks_receives_task(mocker):
     assert call_args["client"] == client
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_poll_for_tasks_no_task(mocker):
     """Tests that _poll_for_tasks handles no task correctly."""
     client = mocker.AsyncMock(spec=Transport)
@@ -92,7 +88,6 @@ async def test_poll_for_tasks_no_task(mocker):
 
     worker = Worker()
 
-    # Register a dummy task so the worker is not "busy" (has supported tasks)
     @worker.skill("dummy_task")
     def dummy_handler(params):
         pass
@@ -106,28 +101,27 @@ async def test_poll_for_tasks_no_task(mocker):
     worker._process_task.assert_not_called()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_start_polling_busy(mocker):
     """Tests that _start_polling waits when the worker is busy."""
     worker = Worker()
     worker._get_current_state = mocker.MagicMock(return_value={"status": "busy"})
     mock_sleep = mocker.patch("holonode.worker.sleep", new_callable=mocker.AsyncMock)
-    mock_sleep.side_effect = asyncio.CancelledError  # To break the loop
+    mock_sleep.side_effect = CancelledError
     worker._registered_event.set()
 
-    with pytest.raises(asyncio.CancelledError):
+    with raises(CancelledError):
         await worker._start_polling()
 
     mock_sleep.assert_called_once_with(worker._config.IDLE_POLL_DELAY)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_start_polling_round_robin(mocker):
     """Tests that _start_polling uses round-robin to select orchestrators."""
     worker = Worker()
     worker._config.MULTI_ORCHESTRATOR_MODE = "ROUND_ROBIN"
 
-    # Setup mock clients
     client1 = mocker.AsyncMock(spec=Transport)
     client2 = mocker.AsyncMock(spec=Transport)
 
@@ -138,7 +132,6 @@ async def test_start_polling_round_robin(mocker):
     worker._total_orchestrator_weight = 2
     worker._get_current_state = mocker.MagicMock(return_value={"status": "idle"})
 
-    # We only want to test one iteration of the polling loop
     async def poll_side_effect(*args, **kwargs):
         worker._shutdown_event.set()
         return False
@@ -148,11 +141,10 @@ async def test_start_polling_round_robin(mocker):
 
     await worker._start_polling()
 
-    # With equal weights, the first one should be chosen
     worker._poll_for_tasks_with_status.assert_called_once_with(client1)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_task_exception(mocker):
     """Tests that _process_task handles exceptions in the task handler."""
     worker = Worker()
@@ -181,7 +173,7 @@ async def test_process_task_exception(mocker):
     assert payload.error.message == "Task failed"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_unsupported_task(mocker):
     """Tests that _process_task handles unsupported tasks correctly."""
     worker = Worker()
@@ -204,7 +196,7 @@ async def test_process_unsupported_task(mocker):
     assert payload.error.message == "Unsupported skill: unsupported_task"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_task_cancelled(mocker):
     """Tests that _process_task handles cancelled tasks correctly."""
     worker = Worker()
@@ -212,7 +204,7 @@ async def test_process_task_cancelled(mocker):
 
     @worker.skill("cancellable_task")
     async def cancellable_task(params: dict, **kwargs):
-        raise asyncio.CancelledError
+        raise CancelledError
 
     task_data = {
         "job_id": "job-1",
@@ -223,51 +215,46 @@ async def test_process_task_cancelled(mocker):
         "client": client,
     }
 
-    with pytest.raises(asyncio.CancelledError):
+    with raises(CancelledError):
         await worker._process_task(task_data)
 
     client.send_result.assert_called_once()
     payload = client.send_result.call_args.args[0]
     assert payload.status == "cancelled"
 
-    @pytest.mark.asyncio
-    async def test_run_with_health_check(mocker):
-        """
-        Tests that run_with_health_check runs the health check server and the main worker loop.
-        """
-        worker = Worker()
-        mock_run = mocker.patch("holonode.worker.run")
-        worker._run_health_check_server = mocker.AsyncMock()
-        worker.main = mocker.AsyncMock()
 
-        # Create a separate async function to call the method
-        async def run_test():
-            worker.run_with_health_check()
+@mark.asyncio
+async def test_run_with_health_check(mocker):
+    """
+    Tests that run_with_health_check runs the health check server and the main worker loop.
+    """
+    worker = Worker()
+    mock_run = mocker.patch("holonode.worker.run")
+    worker._run_health_check_server = mocker.AsyncMock()
+    worker.main = mocker.AsyncMock()
 
-        # Run the test function
-        await run_test()
+    async def run_test():
+        worker.run_with_health_check()
 
-        # Check that asyncio.run was called
-        mock_run.assert_called_once()
+    await run_test()
 
-        # To check the inner calls, we need to get the coroutine passed to asyncio.run
-        wrapper_coro = mock_run.call_args[0][0]
-        await wrapper_coro
+    mock_run.assert_called_once()
 
-        # Verify that both server and main were called
-        worker._run_health_check_server.assert_called_once()
-        worker.main.assert_called_once()
+    wrapper_coro = mock_run.call_args[0][0]
+    await wrapper_coro
+
+    worker._run_health_check_server.assert_called_once()
+    worker.main.assert_called_once()
 
 
-@pytest.mark.asyncio
-@pytest.mark.filterwarnings("ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited")
+@mark.asyncio
+@mark.filterwarnings("ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited")
 async def test_run_health_check_server(mocker):
     """
     Tests that _run_health_check_server starts and stops the aiohttp server.
     """
     worker = Worker()
 
-    # Explicitly mock classes and their return values for better control
     mock_app_instance = mocker.MagicMock()
     mock_app_class = mocker.patch("aiohttp.web.Application", return_value=mock_app_instance)
 
@@ -280,7 +267,6 @@ async def test_run_health_check_server(mocker):
     mock_site_instance.start = mocker.AsyncMock()
     mock_site_class = mocker.patch("aiohttp.web.TCPSite", return_value=mock_site_instance)
 
-    # Set the shutdown event to stop the server
     async def wait_side_effect(*args, **kwargs):
         worker._shutdown_event.set()
 
@@ -288,15 +274,13 @@ async def test_run_health_check_server(mocker):
 
     await worker._run_health_check_server()
 
-    mock_app_class.assert_called_once_with()  # Application()
+    mock_app_class.assert_called_once_with()
     assert mock_app_instance.router.add_get.call_count == 1
     mock_app_instance.router.add_get.assert_any_call("/health", mocker.ANY)
 
-    mock_runner_class.assert_called_once_with(mock_app_instance)  # AppRunner(app)
+    mock_runner_class.assert_called_once_with(mock_app_instance)
     mock_runner_instance.setup.assert_called_once()
     mock_runner_instance.cleanup.assert_called_once()
 
-    mock_site_class.assert_called_once_with(
-        mock_runner_instance, "0.0.0.0", worker._config.WORKER_PORT
-    )  # TCPSite(runner, ...)
+    mock_site_class.assert_called_once_with(mock_runner_instance, "0.0.0.0", worker._config.WORKER_PORT)
     mock_site_instance.start.assert_called_once()

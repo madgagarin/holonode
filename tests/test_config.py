@@ -4,7 +4,7 @@
 #
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-import os
+from os import environ
 from unittest.mock import patch
 
 from holonode.config import WorkerConfig
@@ -12,7 +12,7 @@ from holonode.config import WorkerConfig
 
 def test_worker_config_defaults():
     """Tests that the WorkerConfig class loads default values correctly."""
-    with patch.dict(os.environ, {}, clear=True):
+    with patch.dict(environ, {}, clear=True):
         config = WorkerConfig()
         assert config.WORKER_ID.startswith("worker-")
         assert config.WORKER_TYPE == "generic-cpu-worker"
@@ -40,7 +40,7 @@ def test_worker_config_defaults():
 def test_worker_config_custom_values():
     """Tests that the WorkerConfig class loads custom values from environment variables correctly."""
     with patch.dict(
-        os.environ,
+        environ,
         {
             "WORKER_ID": "test-worker",
             "WORKER_TYPE": "test-worker-type",
@@ -113,7 +113,7 @@ def test_worker_config_extra_and_devices_and_ram(monkeypatch):
 
 def test_get_orchestrators_config_invalid_json(caplog):
     """Tests that _get_orchestrators_config handles invalid JSON correctly and logs a warning."""
-    with patch.dict(os.environ, {"ORCHESTRATORS_CONFIG": "invalid-json"}, clear=True), caplog.at_level("WARNING"):
+    with patch.dict(environ, {"ORCHESTRATORS_CONFIG": "invalid-json"}, clear=True), caplog.at_level("WARNING"):
         config = WorkerConfig()
         assert config.ORCHESTRATORS == [{"url": "http://localhost:8080", "priority": 1, "weight": 1}]
         assert "Could not decode JSON from ORCHESTRATORS_CONFIG" in caplog.text
@@ -121,7 +121,7 @@ def test_get_orchestrators_config_invalid_json(caplog):
 
 def test_load_json_from_env_invalid_json(caplog):
     """Tests that _load_json_from_env handles invalid JSON correctly and logs a warning."""
-    with patch.dict(os.environ, {"INSTALLED_SOFTWARE": "invalid-json"}, clear=True), caplog.at_level("WARNING"):
+    with patch.dict(environ, {"INSTALLED_SOFTWARE": "invalid-json"}, clear=True), caplog.at_level("WARNING"):
         config = WorkerConfig()
         assert config.INSTALLED_SOFTWARE == {"python": "3.11"}
         assert "Could not decode JSON from environment variable INSTALLED_SOFTWARE" in caplog.text
@@ -135,6 +135,6 @@ def test_orchestrator_config_precedence_message(caplog):
         "ORCHESTRATORS_CONFIG": '[{"url": "http://config.com"}]',
         "ORCHESTRATOR_URL": "http://url.com",
     }
-    with patch.dict(os.environ, env_vars, clear=True), caplog.at_level("INFO"):
+    with patch.dict(environ, env_vars, clear=True), caplog.at_level("INFO"):
         WorkerConfig()
         assert "Both ORCHESTRATORS_CONFIG and ORCHESTRATOR_URL are set. Using ORCHESTRATORS_CONFIG." in caplog.text

@@ -1,7 +1,8 @@
-import asyncio
+from asyncio import sleep
+from time import time
 from typing import Any
 
-import pytest
+from pytest import mark
 from rxon.constants import (
     ERROR_CODE_CONTRACT_VIOLATION,
     TASK_STATUS_FAILURE,
@@ -26,7 +27,7 @@ class JitterMockTransport(MockTransport):
         return self.heartbeat_response
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_security_signing():
     config = WorkerConfig()
     config.WORKER_TOKEN = "test-secure-token"
@@ -39,7 +40,7 @@ async def test_worker_security_signing():
     assert len(hb.security.signature) == 64
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_heartbeat_jitter_variants():
     """Verify worker handles various jitter formats."""
     config = WorkerConfig()
@@ -47,22 +48,18 @@ async def test_heartbeat_jitter_variants():
     worker = Worker(config=config, clients=[({}, transport)])
     worker._heartbeat_cooldown = 0
 
-    # 1. String int
     transport.heartbeat_response = {"next_heartbeat_jitter_ms": "500"}
     assert await worker._send_single_heartbeat(transport) == 500
 
-    # 2. String float
     transport.heartbeat_response = {"next_heartbeat_jitter_ms": "500.5"}
-    # Note: my current implementation uses int(), it might return 0 for "500.5" or we can improve it
     jitter = await worker._send_single_heartbeat(transport)
-    assert jitter in (0, 500)  # Current safety check returns 0 for non-int strings
+    assert jitter in (0, 500)
 
-    # 3. Real float
     transport.heartbeat_response = {"next_heartbeat_jitter_ms": 123.45}
     assert await worker._send_single_heartbeat(transport) == 123
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_output_contract_violation():
     config = WorkerConfig()
     transport = MockTransport()
@@ -81,7 +78,7 @@ async def test_output_contract_violation():
     assert transport.results[0].error.code == ERROR_CODE_CONTRACT_VIOLATION
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dynamic_skill_sync():
     config = WorkerConfig()
     transport = MockTransport()
@@ -100,27 +97,22 @@ async def test_dynamic_skill_sync():
     assert transport.heartbeats[-1].supported_skills is not None
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_heartbeat_debounce():
     config = WorkerConfig()
     transport = MockTransport()
     worker = Worker(config=config, clients=[({}, transport)])
-    # We want to test that multiple triggers result in 1 heartbeat.
-    # Set cooldown to a small but positive value so throttling happens.
     worker._heartbeat_cooldown = 0.05
-
-    # Pre-set last heartbeat time to "now" so the first trigger is also throttled
-    from time import time
 
     worker._last_heartbeat_times[transport] = time()
 
     for _ in range(3):
         worker._schedule_heartbeat_debounce()
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
     assert len(transport.heartbeats) == 1
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_large_payload_signing():
     config = WorkerConfig()
     config.WORKER_TOKEN = "secure"

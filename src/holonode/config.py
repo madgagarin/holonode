@@ -42,8 +42,11 @@ class WorkerConfig:
         self.TLS_CA_PATH: str | None = getenv("TLS_CA_PATH")
         self.TLS_CERT_PATH: str | None = getenv("TLS_CERT_PATH")
         self.TLS_KEY_PATH: str | None = getenv("TLS_KEY_PATH")
+        self.REQUIRE_TASK_SIGNATURE: bool = getenv("REQUIRE_TASK_SIGNATURE", "true").lower() == "true"
+        self.SECRET_KEY: str = getenv("ORCHESTRATOR_SECRET_KEY", getenv("SECRET_KEY", ""))
 
-        self.COST_PER_SKILL: dict[str, float] = self._load_json_from_env("COST_PER_SKILL", default={})
+        loaded_cost = self._load_json_from_env("COST_PER_SKILL", default={})
+        self.COST_PER_SKILL: dict[str, float] = loaded_cost if isinstance(loaded_cost, dict) else {}
         self.MAX_CONCURRENT_TASKS: int = int(getenv("MAX_CONCURRENT_TASKS", "10"))
         self.RESOURCES: dict[str, Any] = {
             "cpu_cores": int(getenv("CPU_CORES", "4")),

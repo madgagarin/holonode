@@ -3,15 +3,16 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 
-import asyncio
+from asyncio import create_task, gather, sleep
+from time import time
 
-import pytest
+from pytest import mark
 from rxon.exceptions import RxonRateLimitError
 
 from holonode.worker import Worker
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_multi_orchestrator_backoff_isolation(mocker):
     worker = Worker(worker_type="test")
 
@@ -44,12 +45,10 @@ async def test_multi_orchestrator_backoff_isolation(mocker):
 
     assert worker._poll_backoffs[c1] == 30.0
 
-    from time import time
-
     assert worker._next_poll_time[c1] > time()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_heartbeat_isolation(mocker):
     c1 = mocker.AsyncMock(name="Client1")
     c2 = mocker.AsyncMock(name="Client2")
@@ -66,7 +65,7 @@ async def test_heartbeat_isolation(mocker):
     assert worker._last_heartbeat_times[c2] != last_c1
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_registration_isolation(mocker):
     c1 = mocker.AsyncMock(name="FailingClient")
     c2 = mocker.AsyncMock(name="SucceedingClient")
@@ -81,7 +80,7 @@ async def test_registration_isolation(mocker):
         try:
             if worker._shutdown_event.is_set():
                 return
-            await asyncio.sleep(0.01)
+            await sleep(0.01)
             if worker._shutdown_event.is_set():
                 return
             raise TimeoutError()
@@ -90,24 +89,24 @@ async def test_registration_isolation(mocker):
 
     mocker.patch("holonode.worker.wait_for", side_effect=smart_wait_for)
 
-    t1 = asyncio.create_task(worker._manage_single_orchestrator(c1))
-    t2 = asyncio.create_task(worker._manage_single_orchestrator(c2))
+    t1 = create_task(worker._manage_single_orchestrator(c1))
+    t2 = create_task(worker._manage_single_orchestrator(c2))
 
     found = False
     for _ in range(50):
         if c2.register.called:
             found = True
             break
-        await asyncio.sleep(0.01)
+        await sleep(0.01)
 
     assert found
     assert worker._registered_event.is_set()
 
     worker._shutdown_event.set()
-    await asyncio.sleep(0.05)
+    await sleep(0.05)
 
     assert c1.register.called
 
     t1.cancel()
     t2.cancel()
-    await asyncio.gather(t1, t2, return_exceptions=True)
+    await gather(t1, t2, return_exceptions=True)

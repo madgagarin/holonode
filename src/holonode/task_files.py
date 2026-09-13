@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+from asyncio import to_thread
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from os import makedirs as std_makedirs
-from os.path import basename, dirname, join
+from os import unlink
+from os.path import basename, dirname, isdir, join, lexists
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from aiofiles import open as aiopen
@@ -34,8 +37,8 @@ class TaskFiles:
     def __init__(
         self,
         task_dir: str,
-        job_id: str,
-        task_id: str,
+        job_id: str = "",
+        task_id: str = "",
         s3_manager: S3Manager | None = None,
         observability: ObservabilityManager | None = None,
     ):
@@ -55,9 +58,15 @@ class TaskFiles:
     async def path_to(self, filename: str) -> str:
         """
         Asynchronously returns an absolute path for a file within the task directory.
+        Protects against Path Traversal attacks.
         """
-        root = await self.get_root()
-        return join(root, filename)
+        root = Path(await self.get_root()).resolve()
+        clean_name = filename.rsplit("/", maxsplit=1)[-1] if "://" in filename else filename
+        p = Path(clean_name)
+        target_path = p.resolve() if p.is_absolute() else (root / p).resolve()
+        if not target_path.is_relative_to(root):
+            raise PermissionError(f"Path traversal attempt detected: '{filename}'")
+        return str(target_path)
 
     def get_root_sync(self) -> str:
         """
@@ -69,9 +78,15 @@ class TaskFiles:
     def path_to_sync(self, filename: str) -> str:
         """
         Synchronously returns an absolute path for a file within the task directory.
+        Protects against Path Traversal attacks.
         """
-        root = self.get_root_sync()
-        return join(root, filename)
+        root = Path(self.get_root_sync()).resolve()
+        clean_name = filename.rsplit("/", maxsplit=1)[-1] if "://" in filename else filename
+        p = Path(clean_name)
+        target_path = p.resolve() if p.is_absolute() else (root / p).resolve()
+        if not target_path.is_relative_to(root):
+            raise PermissionError(f"Path traversal attempt detected: '{filename}'")
+        return str(target_path)
 
     @asynccontextmanager
     async def open(self, filename: str, mode: str = "r") -> AsyncGenerator:
@@ -152,7 +167,26 @@ class TaskFiles:
         if not self._s3_manager:
             raise RuntimeError("S3Manager not configured for this TaskFiles instance.")
 
-        path = join(self._task_dir, dirname) if dirname else self._task_dir
+        if dirname:
+            try:
+                path = await self.path_to(dirname)
+            except PermissionError:
+                p = Path(dirname).resolve()
+                if self._s3_manager._config and getattr(self._s3_manager._config, "TASK_FILES_DIR", None):
+                    task_files_root = Path(self._s3_manager._config.TASK_FILES_DIR).resolve()
+                    if p.is_relative_to(task_files_root):
+                        path = str(p)
+                    else:
+                        raise
+                else:
+                    raise
+        else:
+            path = await self.get_root()
+
+        if not await aio_exists(path):
+            raise FileNotFoundError(f"Directory not found: '{path}'")
+        if not await to_thread(isdir, path):
+            raise NotADirectoryError(f"Path is not a directory: '{path}'")
 
         _, metadata = await self._s3_manager.process_result({"root": path}, s3_prefix=self._job_id)
         return metadata["root"]
@@ -163,6 +197,12 @@ class TaskFiles:
             raise RuntimeError("S3Manager not configured for this TaskFiles instance.")
 
         local_path = await self.path_to(filename)
+        file_dir = dirname(local_path)
+        if file_dir != self._task_dir:
+            await makedirs(file_dir, exist_ok=True)
+
+        if await to_thread(lexists, local_path):
+            await to_thread(unlink, local_path)
 
         if self._observability:
             with self._observability.start_s3_span("download", uri):
@@ -173,6 +213,8 @@ class TaskFiles:
         if verify_meta:
             actual_size = await getsize(local_path)
             if verify_meta.size is not None and actual_size != verify_meta.size:
+                if await to_thread(lexists, local_path):
+                    await to_thread(unlink, local_path)
                 raise ValueError(f"Size mismatch for {uri}")
 
         return local_path
@@ -188,7 +230,7 @@ class TaskFiles:
         """
         Asynchronously checks if a specific file or directory exists in the task root.
         """
-        path = join(self._task_dir, filename)
+        path = await self.path_to(filename)
         return cast(bool, await aio_exists(path))
 
     def __repr__(self):

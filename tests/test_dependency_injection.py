@@ -4,16 +4,16 @@
 #
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-import os
+from os.path import join
 
-import pytest
+from pytest import mark
 from rxon import Transport
 
 from holonode import Worker
 from holonode.task_files import TaskFiles
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_files_injection(mocker):
     """Tests that TaskFiles object is correctly injected into the handler."""
     client = mocker.AsyncMock(spec=Transport)
@@ -29,7 +29,6 @@ async def test_task_files_injection(mocker):
     async def handler(params: dict, tf: TaskFiles, **kwargs):
         nonlocal injected_task_files
         injected_task_files = tf
-        # Check async usage
         await tf.path_to("test.txt")
         return {"status": "success"}
 
@@ -45,16 +44,12 @@ async def test_task_files_injection(mocker):
     await worker._process_task(task_data)
 
     assert isinstance(injected_task_files, TaskFiles)
-    # Check if root is correct
-    expected_root = os.path.join(worker._config.TASK_FILES_DIR, "t1")
-    # Verify the path is correct
+    expected_root = join(worker._config.TASK_FILES_DIR, "t1")
     assert injected_task_files._task_dir == expected_root
-
-    # Verify cleanup was called
     worker._s3_manager.cleanup.assert_awaited_once_with("t1")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_files_read_write(tmp_path):
     """Tests high-level read/write methods of TaskFiles."""
     target_dir = tmp_path / "task_dir"
@@ -70,7 +65,7 @@ async def test_task_files_read_write(tmp_path):
     assert read_content == content
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_files_list_exists(tmp_path):
     """Tests list() and exists() methods."""
     target_dir = tmp_path / "task_dir"
@@ -86,7 +81,7 @@ async def test_task_files_list_exists(tmp_path):
     assert not await tf.exists("missing.txt")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_files_open_context(tmp_path):
     """Tests the async with files.open(...) context manager."""
     target_dir = tmp_path / "task_dir"
@@ -100,13 +95,12 @@ async def test_task_files_open_context(tmp_path):
     assert content == "line1\nline2\n"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_files_nested_creation(tmp_path):
     """Tests that nested directories are created automatically."""
     target_dir = tmp_path / "task_dir"
     tf = TaskFiles(str(target_dir), job_id="job1", task_id="task1")
 
-    # Path with subdirectories
     nested_path = "sub/dir/test.txt"
     await tf.write(nested_path, "nested")
 
@@ -114,7 +108,7 @@ async def test_task_files_nested_creation(tmp_path):
     assert await tf.read(nested_path) == "nested"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_files_path_to(tmp_path):
     """Tests path_to method."""
     target_dir = tmp_path / "task_dir"
@@ -123,4 +117,4 @@ async def test_task_files_path_to(tmp_path):
     file_path = await tf.path_to("output.txt")
 
     assert target_dir.exists()
-    assert file_path == os.path.join(str(target_dir), "output.txt")
+    assert file_path == join(str(target_dir), "output.txt")

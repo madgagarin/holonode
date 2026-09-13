@@ -1,18 +1,18 @@
-[EN](https://github.com/madgagarin/holonode/blob/main/docs/DEVELOPMENT.md) | [ES](https://github.com/madgagarin/holonode/blob/main/docs/es/DEVELOPMENT.md) | RU
+[EN](https://github.com/madgagarin/holonode/blob/main/docs/DEVELOPMENT.md) | [ES](https://github.com/madgagarin/holonode/blob/main/docs/es/DEVELOPMENT.md) | **RU**
 
-# Руководство по разработке воркеров
+# Руководство по разработке воркера
 
-Этот документ описывает процесс создания пользовательских воркеров (Workers), совместимых с оркестратором Holarchy, с использованием `holonode` SDK.
+Этот документ описывает, как создать кастомный воркер, совместимый с оркестратором Holarchy, используя SDK `holonode`.
 
 **Требования:** Python 3.11 или выше.
 
 ## Основная концепция
 
-Воркеры, созданные с помощью этого SDK, реализуют гибридную модель взаимодействия с оркестратором:
+Воркеры, созданные с помощью SDK, реализуют гибридную модель взаимодействия с оркестратором:
 
-- **PULL-модель для получения задач:** Воркер сам инициирует соединение и «забирает» задачи из своей очереди. Это позволяет воркерам работать в любой сети (в том числе за NAT или корпоративными файрволами) без необходимости в публичном IP-адресе.
-- **WebSocket для связи в реальном времени:** Опциональный двусторонний канал для получения команд (например, отмена задачи) и отправки промежуточного прогресса.
-- **Оптимизация HLN:** SDK использует протокол **Reverse Axon (RXON)**, который снижает объем передаваемого трафика за счет хеширования списков навыков и отправки обновлений только при изменениях.
+- **PULL-модель для получения задач:** Воркер сам инициирует соединение с оркестратором и «забирает» (pull) задачи из своей персональной очереди. Это позволяет воркерам работать из любой сети (в том числе за NAT или корпоративными файрволами) без необходимости иметь публичный IP-адрес.
+- **WebSocket для связи в реальном времени:** Опциональный двунаправленный канал для получения управляющих команд (например, отмена задачи) и отправки промежуточного прогресса выполнения.
+- **Оптимизация HLN (Холархическая логическая сеть / Holarchical Logic Network):** SDK использует протокол [**Reverse Axon (RXON)**](https://github.com/madgagarin/rxon) для [**HLN**](https://github.com/madgagarin/hln), который снижает объем передаваемого трафика за счет хеширования списков навыков и отправки обновлений только при изменениях.
 - **Отказоустойчивость соединений:**
   - **Независимые оркестраторы:** Каждое соединение управляется отдельной фоновой задачей. Сбой одного сервера не блокирует связь с другими.
   - **Регистрация с ретраями:** Бесконечные попытки регистрации с экспоненциальной задержкой, если оркестратор недоступен.
@@ -39,7 +39,6 @@ pip install -e .[dev]
 Создайте Python-файл (например, `my_worker.py`) и импортируйте класс `Worker`. SDK использует **автоматический вывод (Inference)** для сокращения шаблонного кода.
 
 ```python
-import asyncio
 from holonode import Worker
 from pydantic import BaseModel
 
@@ -157,13 +156,16 @@ POLL_BACKOFF_FACTOR=2.0     # Множитель для каждой попыт�
 from holonode import SkillBlueprint
 from pydantic import BaseModel
 
+
 class ResizeParams(BaseModel):
     w: int
     h: int
 
+
 bp = SkillBlueprint()
 
-@bp.skill() # name="resize", схема из ResizeParams
+
+@bp.skill()  # name="resize", схема из ResizeParams
 async def resize(params: ResizeParams):
     return {"status": "success"}
 ```
@@ -180,6 +182,7 @@ SDK поддерживает **автоматическую работу с S3**
 
 ```python
 from holonode import Worker, TaskFiles
+
 
 @worker.skill()
 async def process_video(params: dict, files: TaskFiles):
@@ -211,6 +214,7 @@ SDK имеет встроенную поддержку **распределен�
 
 ```python
 from holonode import Worker, ObservabilityManager
+
 
 @worker.skill()
 async def monitored_task(params: dict, obs: ObservabilityManager):
@@ -268,12 +272,12 @@ async def heavy_ai_task(params: dict, add_to_hot_skills, **kwargs):
 ```python
 from holonode import Worker, OrchestratorClient
 
+
 @worker.skill()
 async def agent_reasoning(params: dict, orchestrator_client: OrchestratorClient):
     # Делегируем подзадачу (вызов инструмента) оркестратору
     subtask_result = await orchestrator_client.call_skill(
-        skill_name="web_search",
-        params={"query": "новости об искусственном интеллекте"}
+        skill_name="web_search", params={"query": "новости об искусственном интеллекте"}
     )
     # Продолжаем рассуждения, используя результат инструмента
     return {"final_answer": f"Результат поиска: {subtask_result['data']}"}

@@ -15,6 +15,16 @@ from typing import Any
 
 from holonode.worker import Worker
 
+try:
+    from watchdog.events import FileSystemEventHandler
+    from watchdog.observers import Observer
+
+    _HAS_WATCHDOG = True
+except ImportError:
+    FileSystemEventHandler = object
+    Observer = None
+    _HAS_WATCHDOG = False
+
 
 def import_string(import_name: str) -> Any:
     """
@@ -33,7 +43,6 @@ def import_string(import_name: str) -> Any:
 
 
 def run_worker(args: Namespace) -> None:
-    # Add current directory to path to allow importing local modules
     path.insert(0, getcwd())
 
     try:
@@ -69,10 +78,7 @@ def main() -> None:
 
     if args.command == "run":
         if args.reload:
-            try:
-                from watchdog.events import FileSystemEventHandler
-                from watchdog.observers import Observer
-            except ImportError:
+            if not _HAS_WATCHDOG:
                 print(
                     "Error: '--reload' requires the 'watchdog' package. "
                     "Install it with 'pip install watchdog' or 'pip install holonode[dev]'"
@@ -92,7 +98,6 @@ def main() -> None:
                         self.process.terminate()
                         self.process.wait()
 
-                    # Filter out --reload from args to avoid recursion
                     new_args = [executable, "-m", "holonode", "run", "--app", self.cmd_args.app]
                     if self.cmd_args.health_check:
                         new_args.append("--health-check")

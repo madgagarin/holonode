@@ -6,20 +6,18 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
+from pytest import mark
+
+from holonode import observability
+from holonode.observability import ObservabilityManager
 
 
-# Ensure we can import the module even if OTel is not installed
 def test_observability_manager_no_op():
     """Tests that ObservabilityManager works even if OTel is not installed."""
-    # We mock the module level _HAS_OTEL
     with patch("holonode.observability._HAS_OTEL", False):
-        from holonode.observability import ObservabilityManager
-
         manager = ObservabilityManager(enabled=True)
         assert manager.enabled is False
 
-        # Calling methods should not raise errors
         with manager.start_task_span("test", "t1", "j1") as span:
             assert span is None
 
@@ -27,18 +25,12 @@ def test_observability_manager_no_op():
         manager.record_s3_op("upload", "success")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_observability_integration_logic():
     """Tests basic functionality of ObservabilityManager logic."""
-    # Instead of patching opentelemetry, we test the manager's internal state
-    # by ensuring it handles attributes correctly.
     with patch("holonode.observability._HAS_OTEL", True):
-        from holonode.observability import ObservabilityManager
+        manager = ObservabilityManager(enabled=False)
 
-        # Mock the attributes that would be created during __init__
-        manager = ObservabilityManager(enabled=False)  # Start disabled to avoid init logic
-
-        # Manually inject mocks
         manager.enabled = True
         manager.tracer = MagicMock()
         manager.meter = MagicMock()
@@ -46,24 +38,20 @@ async def test_observability_integration_logic():
         manager.tasks_duration = MagicMock()
         manager.s3_ops_total = MagicMock()
 
-        # Test span starting
         with manager.start_task_span("test-task", "t1", "j1"):
             pass
 
         manager.tracer.start_as_current_span.assert_called_once()
 
-        # Test metrics recording
         manager.record_task_finished("test-task", "success", 0.5)
         manager.tasks_total.add.assert_called()
         manager.tasks_duration.record.assert_called()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_observability_shutdown(mocker):
     """Tests that shutdown flushes and closes providers."""
     with patch("holonode.observability._HAS_OTEL", True):
-        from holonode.observability import ObservabilityManager
-
         manager = ObservabilityManager(enabled=True)
         manager._tracer_provider = mocker.Mock()
         manager._meter_provider = mocker.Mock()
@@ -77,9 +65,6 @@ async def test_observability_shutdown(mocker):
 def test_observability_manager_otlp_vs_console_config(mocker):
     """Tests that the manager chooses OTLP or Console based on env vars."""
     with patch("holonode.observability._HAS_OTEL", True):
-        from holonode.observability import ObservabilityManager
-
-        # Mock core OTel modules and classes
         mocker.patch("holonode.observability.metrics", create=True)
         mocker.patch("holonode.observability.trace", create=True)
         mocker.patch("holonode.observability.Resource", create=True)
@@ -89,33 +74,22 @@ def test_observability_manager_otlp_vs_console_config(mocker):
         mocker.patch("holonode.observability.PeriodicExportingMetricReader", create=True)
         mocker.patch("holonode.observability.MeterProvider", create=True)
 
-        # Case 1: OTLP Endpoint set
         with patch.dict("os.environ", {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4317"}):
             manager = ObservabilityManager(enabled=True)
             assert manager.enabled is True
-            # Verify OTLPMetricExporter was used
-            from holonode.observability import OTLPMetricExporter
+            assert observability.OTLPMetricExporter.called
 
-            assert OTLPMetricExporter.called
-
-        # Case 2: No OTLP Endpoint
         with patch.dict("os.environ", {}, clear=True):
             manager = ObservabilityManager(enabled=True)
-            # Verify ConsoleMetricExporter was used
-            from holonode.observability import ConsoleMetricExporter
-
-            assert ConsoleMetricExporter.called
+            assert observability.ConsoleMetricExporter.called
 
 
 def test_observability_disabled_mode_safety():
     """Tests that record methods don't crash when disabled."""
     with patch("holonode.observability._HAS_OTEL", True):
-        from holonode.observability import ObservabilityManager
-
         manager = ObservabilityManager(enabled=False)
         assert manager.enabled is False
         assert manager.meter is None
 
-        # Should not crash
         manager.record_task_finished("task", "ok", 1.0)
         manager.record_s3_op("op", "ok")

@@ -8,11 +8,13 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
+from .config import WorkerConfig
 from .logging import setup_logging
 from .observability import ObservabilityManager
 from .task_files import TaskFiles
 from .worker import (
     DeviceUsage,
+    OrchestratorClient,
     ResourcesUsage,
     SkillBlueprint,
     SkillInfo,
@@ -23,6 +25,8 @@ from .worker import (
 
 __all__ = [
     "Worker",
+    "WorkerConfig",
+    "OrchestratorClient",
     "SkillBlueprint",
     "SkillInfo",
     "TaskFiles",

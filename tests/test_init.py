@@ -4,11 +4,11 @@
 #
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-from importlib import reload
+from importlib import import_module, reload
 from importlib.metadata import PackageNotFoundError
 from unittest.mock import patch
 
-import holonode
+holonode = import_module("holonode")
 
 
 def test_version_unknown_when_package_not_found():
@@ -29,3 +29,11 @@ def test_version_is_set_when_package_is_found():
         mock_version.return_value = "1.2.3"
         reload(holonode)
         assert holonode.__version__ == "1.2.3"
+
+
+def test_all_exports():
+    """
+    Tests that all symbols defined in __all__ are accessible.
+    """
+    for symbol in holonode.__all__:
+        assert hasattr(holonode, symbol)

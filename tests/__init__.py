@@ -4,4 +4,3 @@
 #
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-# This file makes the 'tests' directory a Python package.

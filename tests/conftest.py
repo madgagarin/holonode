@@ -4,15 +4,15 @@
 #
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-import asyncio
+from asyncio import all_tasks, current_task, gather
 
-import pytest_asyncio
+from pytest_asyncio import fixture as async_fixture
 
 
-@pytest_asyncio.fixture(autouse=True)
+@async_fixture(autouse=True)
 async def cancel_all_tasks():
     yield
-    tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+    tasks = [task for task in all_tasks() if task is not current_task()]
     for task in tasks:
         task.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
+    await gather(*tasks, return_exceptions=True)

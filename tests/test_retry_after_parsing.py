@@ -5,12 +5,12 @@
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 
-import pytest
+from pytest import fixture
 
 from holonode.worker import Worker
 
 
-@pytest.fixture
+@fixture
 def worker():
     return Worker(worker_type="test")
 
@@ -21,13 +21,10 @@ def test_parse_retry_after_seconds(worker):
 
 
 def test_parse_retry_after_http_date(worker):
-    # Use future date in UTC
     future_date = datetime.now(UTC) + timedelta(seconds=100)
-    # Format according to RFC 7231 (HTTP-date), mandatory usegmt=True for "GMT" suffix
     date_str = format_datetime(future_date, usegmt=True)
 
     parsed = worker._parse_retry_after(date_str)
-    # Allow delta due to execution time
     assert 90 < parsed <= 101
 
 
@@ -44,9 +41,7 @@ def test_parse_retry_after_invalid(worker):
 
 
 def test_parse_retry_after_naive_date(worker, mocker):
-    # Test case where date might be naive
     naive_date = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=60)
-    # email.utils format_datetime with usegmt=True requires UTC aware object
     aware_date = naive_date.replace(tzinfo=UTC)
     date_str = format_datetime(aware_date, usegmt=True)
     parsed = worker._parse_retry_after(date_str)

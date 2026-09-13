@@ -6,12 +6,14 @@
 
 from __future__ import annotations
 
-from asyncio import Semaphore, sleep, to_thread
+from asyncio import Lock, Semaphore, sleep, to_thread
 from logging import getLogger
-from os import symlink, unlink
-from os.path import basename, dirname, join, relpath
+from os import replace, symlink, unlink, walk
+from os.path import basename, dirname, isdir, join, lexists, relpath
+from pathlib import Path
 from shutil import rmtree
 from typing import Any, cast
+from uuid import uuid4
 
 from aiofiles import open as aio_open
 from aiofiles.os import makedirs
@@ -147,6 +149,14 @@ class S3Manager:
         self._provider = S3BlobProvider(config, self._semaphore)
         self._active_ops = 0
         self._observability = observability or ObservabilityManager(enabled=False)
+        self._download_locks: dict[str, Lock] = {}
+        self._locks_mutex = Lock()
+
+    async def _get_download_lock(self, key: str) -> Lock:
+        async with self._locks_mutex:
+            if key not in self._download_locks:
+                self._download_locks[key] = Lock()
+            return self._download_locks[key]
 
     async def wait_all_done(self, timeout: float = 30.0) -> None:
         if self._active_ops == 0:
@@ -159,7 +169,7 @@ class S3Manager:
 
     async def cleanup(self, task_id: str) -> None:
         task_dir = join(self._config.TASK_FILES_DIR, task_id)
-        if await exists(task_dir):
+        if await to_thread(lexists, task_dir):
             await to_thread(lambda: rmtree(task_dir, ignore_errors=True))
 
     async def _download_file_cached(self, uri: str, local_path: str) -> None:
@@ -171,18 +181,30 @@ class S3Manager:
             await makedirs(cache_dir, exist_ok=True)
             cache_file = join(cache_dir, etag)
 
-            if await exists(cache_file):
-                if await exists(local_path):
-                    await to_thread(unlink, local_path)
-                await to_thread(symlink, cache_file, local_path)
-                self._observability.record_s3_op("download_cache_hit", "success")
-            else:
-                await self._provider.download(uri, cache_file)
-                if await exists(local_path):
-                    await to_thread(unlink, local_path)
-                await to_thread(symlink, cache_file, local_path)
-                self._observability.record_s3_op("download", "success")
+            lock = await self._get_download_lock(etag)
+            async with lock:
+                if await exists(cache_file):
+                    if await to_thread(lexists, local_path):
+                        await to_thread(unlink, local_path)
+                    await to_thread(symlink, cache_file, local_path)
+                    self._observability.record_s3_op("download_cache_hit", "success")
+                else:
+                    tmp_cache_file = f"{cache_file}.tmp.{uuid4().hex}"
+                    try:
+                        await self._provider.download(uri, tmp_cache_file)
+                        await to_thread(replace, tmp_cache_file, cache_file)
+                    except Exception:
+                        if await to_thread(lexists, tmp_cache_file):
+                            await to_thread(unlink, tmp_cache_file)
+                        raise
+
+                    if await to_thread(lexists, local_path):
+                        await to_thread(unlink, local_path)
+                    await to_thread(symlink, cache_file, local_path)
+                    self._observability.record_s3_op("download", "success")
         else:
+            if await to_thread(lexists, local_path):
+                await to_thread(unlink, local_path)
             await self._provider.download(uri, local_path)
             self._observability.record_s3_op("download", "success")
 
@@ -202,7 +224,8 @@ class S3Manager:
                         await makedirs(local_root, exist_ok=True)
 
                         if is_dir:
-                            local_path = join(local_root, key.rstrip("/").split("/")[-1])
+                            folder_name = key.rstrip("/").split("/")[-1] if key.strip("/") else "root"
+                            local_path = join(local_root, folder_name)
                             return await self._download_folder(item, local_path)
 
                         local_path = join(local_root, basename(key))
@@ -219,6 +242,8 @@ class S3Manager:
         return cast(dict[str, Any], await _process(params))
 
     async def _download_folder(self, uri: str, local_path: str) -> str:
+        await makedirs(local_path, exist_ok=True)
+        local_root = Path(local_path).resolve()
         bucket, prefix, _ = parse_uri(uri)
         store = self._provider._get_store(bucket)
         objects = await obstore_list(store, prefix=prefix).collect()
@@ -227,9 +252,50 @@ class S3Manager:
                 continue
             rel = relpath(obj.path, prefix)
             target = join(local_path, rel)
+            target_path = Path(target).resolve()
+            if not target_path.is_relative_to(local_root):
+                logger.error(f"S3 folder download path traversal attempt detected: {obj.path}")
+                raise PermissionError(f"Path traversal attempt in S3 key: '{obj.path}'")
             await makedirs(dirname(target), exist_ok=True)
             await self._download_file_cached(f"s3://{bucket}/{obj.path}", target)
         return local_path
+
+    async def _upload_folder(
+        self, local_path: str, s3_prefix: str, key_path: str, metadata_map: dict[str, FileMetadata]
+    ) -> str:
+        with self._observability.start_s3_span("upload", local_path):
+            bucket = self._config.S3_DEFAULT_BUCKET
+            folder_name = basename(local_path.rstrip("/"))
+            if not s3_prefix:
+                dir_key = f"{folder_name}/" if folder_name else ""
+            elif folder_name == s3_prefix:
+                dir_key = f"{s3_prefix.rstrip('/')}/"
+            else:
+                dir_key = f"{join(s3_prefix, folder_name).lstrip('/')}/"
+
+            target_uri = f"s3://{bucket}/{dir_key}"
+
+            def _collect_files(path: str) -> list[str]:
+                collected = []
+                for root_dir, _, filenames in walk(path):
+                    for f in filenames:
+                        collected.append(join(root_dir, f))
+                return collected
+
+            files = await to_thread(_collect_files, local_path)
+            total_size = 0
+            last_etag: str | None = None
+            for file_path in files:
+                rel = relpath(file_path, local_path)
+                file_target_key = f"{dir_key}{rel}"
+                file_uri = f"s3://{bucket}/{file_target_key}"
+                last_etag = await self._provider.upload(file_path, file_uri)
+                total_size += await getsize(file_path)
+
+            meta = FileMetadata(uri=target_uri, size=total_size, etag=last_etag or None)
+            metadata_map[key_path] = meta
+            self._observability.record_s3_op("upload", "success")
+            return target_uri
 
     async def process_result(
         self, result: dict[str, Any], s3_prefix: str = ""
@@ -237,13 +303,16 @@ class S3Manager:
         if not self._config.S3_ENDPOINT_URL:
             return result, {}
 
-        metadata_map = {}
+        metadata_map: dict[str, FileMetadata] = {}
 
         async def _process(item: Any, key_path: str = "") -> Any:
             if isinstance(item, str) and item.startswith(self._config.TASK_FILES_DIR):
                 if await exists(item):
                     self._active_ops += 1
                     try:
+                        if await to_thread(isdir, item):
+                            return await self._upload_folder(item, s3_prefix, key_path, metadata_map)
+
                         with self._observability.start_s3_span("upload", item):
                             bucket = self._config.S3_DEFAULT_BUCKET
                             filename = basename(item)

@@ -1,4 +1,4 @@
-[EN](https://github.com/madgagarin/holonode/blob/main/CONTRIBUTING.md) | ES | [RU](https://github.com/madgagarin/holonode/blob/main/docs/ru/CONTRIBUTING.md)
+[EN](https://github.com/madgagarin/holonode/blob/main/CONTRIBUTING.md) | **ES** | [RU](https://github.com/madgagarin/holonode/blob/main/docs/ru/CONTRIBUTING.md)
 
 # Contribuyendo al SDK del Worker de Holarchy
 

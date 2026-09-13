@@ -1,8 +1,8 @@
-import asyncio
-import sys
+from asyncio import create_task, sleep
+from sys import modules
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
+from pytest import mark, raises
 from rxon.models import FileMetadata, WorkerCommand
 from rxon.testing import MockTransport
 
@@ -11,7 +11,7 @@ from holonode.task_files import TaskFiles
 from holonode.worker import Worker
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_sync_command_handler():
     """Test sync handler for a custom command (Happy path)."""
     transport = MockTransport()
@@ -25,10 +25,10 @@ async def test_sync_command_handler():
         nonlocal received_cmd
         received_cmd = command.command
 
-    listener_task = asyncio.create_task(worker._listen_to_single_transport(transport))
+    listener_task = create_task(worker._listen_to_single_transport(transport))
     transport.push_command(WorkerCommand(command="sync_cmd"))
 
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
 
     assert received_cmd == "sync_cmd"
     listener_task.cancel()
@@ -50,12 +50,12 @@ def test_get_resources_usage_with_libraries():
     mock_gpu.temperature = 70
     mock_gputil.getGPUs.return_value = [mock_gpu]
 
-    with patch.dict(sys.modules, {"psutil": mock_psutil, "GPUtil": mock_gputil}):
-        if "psutil" in sys.modules:
-            del sys.modules["psutil"]
-        if "GPUtil" in sys.modules:
-            del sys.modules["GPUtil"]
-        with patch.dict(sys.modules, {"psutil": mock_psutil, "GPUtil": mock_gputil}):
+    with patch.dict(modules, {"psutil": mock_psutil, "GPUtil": mock_gputil}):
+        if "psutil" in modules:
+            del modules["psutil"]
+        if "GPUtil" in modules:
+            del modules["GPUtil"]
+        with patch.dict(modules, {"psutil": mock_psutil, "GPUtil": mock_gputil}):
             usage = worker._get_resources_usage()
 
             assert usage is not None
@@ -69,14 +69,14 @@ def test_get_resources_usage_with_libraries():
 def test_get_resources_usage_without_libraries():
     """Test behavior WITHOUT libraries (Edge case)."""
     worker = Worker()
-    with patch.dict(sys.modules, {"psutil": None, "GPUtil": None}):
+    with patch.dict(modules, {"psutil": None, "GPUtil": None}):
         usage = worker._get_resources_usage()
         assert usage is not None
         assert usage.cpu_load_percent == 0.0
         assert usage.devices_usage is None
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_files_download_integrity_ok(tmp_path):
     """Test file download via TaskFiles with successful integrity check."""
     config = WorkerConfig()
@@ -98,7 +98,7 @@ async def test_task_files_download_integrity_ok(tmp_path):
         assert path.endswith("test.txt")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_files_download_integrity_fail(tmp_path):
     """Test file download via TaskFiles with integrity error."""
     config = WorkerConfig()
@@ -106,35 +106,33 @@ async def test_task_files_download_integrity_fail(tmp_path):
     worker = Worker(config=config)
 
     tf = TaskFiles(task_dir=str(tmp_path / "task1"), job_id="j1", task_id="t1", s3_manager=worker._s3_manager)
-    verify_meta = FileMetadata(uri="s3://b/k", size=10)  # Expect 10
+    verify_meta = FileMetadata(uri="s3://b/k", size=10)
 
     with patch.object(worker._s3_manager._provider, "download", new_callable=AsyncMock) as mock_dl:
 
         async def mock_download(uri, local_path):
             with open(local_path, "w") as f:
-                f.write("wrong")  # Give 5
+                f.write("wrong")
 
         mock_dl.side_effect = mock_download
 
-        with pytest.raises(ValueError, match="Size mismatch"):
+        with raises(ValueError, match="Size mismatch"):
             await tf.download_file("s3://b/k", "test.txt", verify_meta=verify_meta)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_files_upload_dir_new_api(tmp_path):
     """Test directory upload via new TaskFiles API."""
     config = WorkerConfig()
     config.TASK_FILES_DIR = str(tmp_path)
     worker = Worker(config=config)
 
-    # Create test directory
     test_dir = tmp_path / "to_upload"
     test_dir.mkdir()
     (test_dir / "file.txt").write_text("content")
 
     tf = TaskFiles(task_dir=str(tmp_path / "task1"), job_id="j1", task_id="t1", s3_manager=worker._s3_manager)
 
-    # Mock process_result in S3Manager
     mock_meta = FileMetadata(uri="s3://b/j1/root/", size=0)
     with patch.object(worker._s3_manager, "process_result", new_callable=AsyncMock) as mock_pr:
         mock_pr.return_value = ({}, {"root": mock_meta})

@@ -4,21 +4,19 @@
 #
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-import pytest
+from pytest import mark
 from rxon.testing import MockTransport
 
 from holonode.config import WorkerConfig
 from holonode.worker import Worker
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_per_orchestrator_token_usage(mocker):
     """
     Tests that the worker uses the correct token for each orchestrator
     by checking the transport configuration.
     """
-
-    # 1. Setup mock configuration object
     mock_config = WorkerConfig()
     mock_config.ORCHESTRATORS = [
         {"url": "http://orch1.com", "token": "token-for-orch1", "weight": 1},
@@ -26,22 +24,18 @@ async def test_per_orchestrator_token_usage(mocker):
     ]
     mock_config.WORKER_TOKEN = "global-fallback-token"
 
-    # Mock create_transport to return MockTransport with captured params
     def mock_create_transport(url, token, **kwargs):
-        # We can store url in a custom attribute for verification
         client = MockTransport(token=token)
         client.url = url  # type: ignore
         return client
 
     mocker.patch("holonode.worker.create_transport", side_effect=mock_create_transport)
 
-    # 2. Instantiate worker
     worker = Worker(config=mock_config)
     worker._init_clients()
 
     assert len(worker._clients) == 2
 
-    # Check tokens in transports
     client1 = next(c for o, c in worker._clients if o["url"] == "http://orch1.com")
     client2 = next(c for o, c in worker._clients if o["url"] == "http://orch2.com")
 

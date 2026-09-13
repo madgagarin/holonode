@@ -4,60 +4,54 @@
 #
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-import sys
+from importlib import import_module
+from sys import modules
 from unittest.mock import patch
 
-import pytest
+from pytest import mark, raises
 
 from holonode.config import WorkerConfig
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_s3_missing_dependency():
     """
     Tests that S3Manager raises appropriate errors when 'obstore' is not installed.
     """
-    # Remove the module from sys.modules to force reload
-    if "holonode.s3" in sys.modules:
-        del sys.modules["holonode.s3"]
+    if "holonode.s3" in modules:
+        del modules["holonode.s3"]
 
-    # Simulate import error for obstore
-    with patch.dict(sys.modules, {"obstore": None}):
-        # Re-import the module under test
-        import holonode.s3 as s3_module
+    with patch.dict(modules, {"obstore": None}):
+        s3_module = import_module("holonode.s3")
 
         assert s3_module._HAS_S3 is False
 
         config = WorkerConfig()
-        # Ensure S3 is "enabled" in config so logic tries to proceed
         config.S3_ENDPOINT_URL = "http://localhost:9000"
 
         manager = s3_module.S3Manager(config)
 
-        # 1. Check explicit check on provider
-        with pytest.raises(RuntimeError) as excinfo:
+        with raises(RuntimeError) as excinfo:
             manager._provider._check_availability()
         assert "install 'holonode[s3]'" in str(excinfo.value)
-        # 2. Check process_params (async)
-        with pytest.raises(RuntimeError):
+
+        with raises(RuntimeError):
             await manager.process_params({"file": "s3://bucket/file"}, "task-1")
 
-    # Cleanup: remove the modified module so subsequent tests import the correct one
-    if "holonode.s3" in sys.modules:
-        del sys.modules["holonode.s3"]
+    if "holonode.s3" in modules:
+        del modules["holonode.s3"]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_metrics_missing_dependency():
     """
     Tests that ObservabilityManager enters No-op mode when 'opentelemetry' is not installed.
     """
-    if "holonode.observability" in sys.modules:
-        del sys.modules["holonode.observability"]
+    if "holonode.observability" in modules:
+        del modules["holonode.observability"]
 
-    # Simulate missing OTel
     with patch.dict(
-        sys.modules,
+        modules,
         {
             "opentelemetry": None,
             "opentelemetry.metrics": None,
@@ -68,18 +62,17 @@ async def test_metrics_missing_dependency():
             "prometheus_client": None,
         },
     ):
-        import holonode.observability as obs_module
+        obs_module = import_module("holonode.observability")
 
         assert obs_module._HAS_OTEL is False
 
         manager = obs_module.ObservabilityManager(enabled=True)
         assert manager.enabled is False
 
-        # Verify no crashes on standard calls
         with manager.start_task_span("task", "t1", "j1") as span:
             assert span is None
 
         manager.record_task_finished("task", "success", 1.0)
 
-    if "holonode.observability" in sys.modules:
-        del sys.modules["holonode.observability"]
+    if "holonode.observability" in modules:
+        del modules["holonode.observability"]

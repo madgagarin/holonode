@@ -3,12 +3,12 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 
-import pytest
+from pytest import mark
 
 from holonode.worker import Worker
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_heartbeat_debounce_event_not_lost(mocker):
     transport = mocker.AsyncMock()
     worker = Worker(clients=[({"url": "http://test"}, transport)])
@@ -34,7 +34,7 @@ async def test_heartbeat_debounce_event_not_lost(mocker):
     assert worker._debouncing_flags[transport] is False
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_debounce_task_uniqueness(mocker):
     transport = mocker.AsyncMock()
     worker = Worker(clients=[({"url": "http://test"}, transport)])

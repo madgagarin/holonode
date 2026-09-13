@@ -24,8 +24,8 @@ def test_task_registration_with_type():
 def test_get_current_state_initial():
     """Tests the initial state of the worker."""
     mock_config = WorkerConfig()
-    mock_config.MAX_CONCURRENT_TASKS = 5  # Set initial limit
-    mock_config.ORCHESTRATORS = [{"url": "http://test", "weight": 1}]  # Needs to be defined
+    mock_config.MAX_CONCURRENT_TASKS = 5
+    mock_config.ORCHESTRATORS = [{"url": "http://test", "weight": 1}]
 
     worker = Worker(config=mock_config, skill_type_limits={"video": 1, "audio": 2})
 
@@ -50,11 +50,10 @@ def test_get_current_state_initial():
 
 def test_get_current_state_global_limit_reached():
     """Tests that the worker becomes full when the global concurrency limit is reached."""
-    # Create a mock config to ensure MAX_CONCURRENT_TASKS is controlled
     mock_config = WorkerConfig()
     mock_config.MAX_CONCURRENT_TASKS = 1
 
-    worker = Worker(config=mock_config)  # Pass the mock config
+    worker = Worker(config=mock_config)
     worker._current_load = 1
 
     @worker.skill("some_task")
@@ -62,7 +61,6 @@ def test_get_current_state_global_limit_reached():
 
     state = worker._get_current_state()
     assert state["status"] == "full"
-    # Supported skills are always returned
     assert len(state["supported_skills"]) == 1
     assert state["available_skills"] == []
 
@@ -81,10 +79,8 @@ def test_get_current_state_type_limit_reached():
 
     state = worker._get_current_state()
     assert state["status"] == "idle"
-    # Both are supported
     skill_names = {s.name for s in state["supported_skills"]}
     assert skill_names == {"process_audio", "process_video"}
-    # Only audio is available
     available_names = {s.name for s in state["available_skills"]}
     assert available_names == {"process_audio"}
 

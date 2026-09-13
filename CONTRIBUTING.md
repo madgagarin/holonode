@@ -1,4 +1,4 @@
-EN | [ES](https://github.com/madgagarin/holonode/blob/main/docs/es/CONTRIBUTING.md) | [RU](https://github.com/madgagarin/holonode/blob/main/docs/ru/CONTRIBUTING.md)
+**EN** | [ES](https://github.com/madgagarin/holonode/blob/main/docs/es/CONTRIBUTING.md) | [RU](https://github.com/madgagarin/holonode/blob/main/docs/ru/CONTRIBUTING.md)
 
 # Contributing to Holonode Worker SDK
 

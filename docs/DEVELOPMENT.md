@@ -1,3 +1,5 @@
+**EN** | [ES](https://github.com/madgagarin/holonode/blob/main/docs/es/DEVELOPMENT.md) | [RU](https://github.com/madgagarin/holonode/blob/main/docs/ru/DEVELOPMENT.md)
+
 # Worker Development Guide
 
 This document describes how to create a custom Worker compatible with the Holarchy Orchestrator using the `holonode` SDK.
@@ -10,7 +12,7 @@ Workers created with the SDK implement a hybrid interaction model with the Orche
 
 - **PULL Model for Task Retrieval:** The worker initiates the connection to the Orchestrator and "pulls" tasks from its personal queue. This allows workers to operate from any network (including behind NAT or corporate firewalls) without needing a public IP address.
 - **WebSocket for Real-time Communication:** An optional bidirectional channel to receive commands (e.g., task cancellation) and send intermediate execution progress.
-- **HLN Optimization:** The SDK uses the **Reverse Axon (RXON)** protocol, which reduces traffic by hashing skill lists and sending updates only when changes occur.
+- **HLN (Holarchical Logic Network) Optimization:** The SDK uses the [**Reverse Axon (RXON)**](https://github.com/madgagarin/rxon) protocol for [**HLN**](https://github.com/madgagarin/hln), which reduces network traffic by hashing skill lists and sending updates only when changes occur.
 - **Connection Resilience:**
   - **Independent Orchestrators:** Each orchestrator connection is managed by a separate background task. One server failure doesn't block communications with others.
   - **Registration Retries:** Infinite retries with exponential backoff if an orchestrator is offline.
@@ -37,9 +39,9 @@ pip install -e .[dev]
 Create a Python file (e.g., `my_worker.py`) and import the `Worker` class. The SDK uses **Automatic Inference** to reduce boilerplate code.
 
 ```python
-import asyncio
 from holonode import Worker
 from pydantic import BaseModel
+
 
 # 1. Initialize the Worker class
 worker = Worker(worker_type="my-custom-worker")
@@ -155,13 +157,16 @@ Organize tasks into modules in the `skills/` directory.
 from holonode import SkillBlueprint
 from pydantic import BaseModel
 
+
 class ResizeParams(BaseModel):
     w: int
     h: int
 
+
 bp = SkillBlueprint()
 
-@bp.skill() # name="resize", schema from ResizeParams
+
+@bp.skill()  # name="resize", schema from ResizeParams
 async def resize(params: ResizeParams):
     return {"status": "success"}
 ```
@@ -178,6 +183,7 @@ The SDK supports **"Payload Offloading"** to S3-compatible storage using the hig
 
 ```python
 from holonode import Worker, TaskFiles
+
 
 @worker.skill()
 async def process_video(params: dict, files: TaskFiles):
@@ -209,6 +215,7 @@ The SDK provides built-in support for **distributed tracing** and **metrics** vi
 
 ```python
 from holonode import Worker, ObservabilityManager
+
 
 @worker.skill()
 async def monitored_task(params: dict, obs: ObservabilityManager):
@@ -266,12 +273,12 @@ Request the `OrchestratorClient` dependency in your handler:
 ```python
 from holonode import Worker, OrchestratorClient
 
+
 @worker.skill()
 async def agent_reasoning(params: dict, orchestrator_client: OrchestratorClient):
     # Delegate a subtask (e.g. tool execution) to the orchestrator
     subtask_result = await orchestrator_client.call_skill(
-        skill_name="web_search",
-        params={"query": "latest news about AI"}
+        skill_name="web_search", params={"query": "latest news about AI"}
     )
     # Continue reasoning using the tool result
     return {"final_answer": f"Web search returned: {subtask_result['data']}"}

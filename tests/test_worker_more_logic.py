@@ -4,16 +4,19 @@
 #
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-import asyncio
-import sys
+from asyncio import CancelledError
+from dataclasses import dataclass
+from importlib import reload
+from sys import modules
 from unittest.mock import patch
 
-import pytest
+from pytest import mark, raises
 from rxon import Transport
 from rxon.constants import ERROR_CODE_INVALID_INPUT
 from rxon.constants import ERROR_CODE_PERMANENT as PERMANENT_ERROR
 from rxon.testing import MockTransport
 
+from holonode import worker as worker_module
 from holonode.types import ParamValidationError
 from holonode.worker import Worker
 
@@ -22,17 +25,13 @@ def test_pydantic_not_installed():
     """
     Tests that the worker initializes correctly when pydantic is not installed.
     """
-    with patch.dict(sys.modules, {"pydantic": None}):
-        from importlib import reload
-
-        from holonode import worker
-
-        reload(worker)
-        assert not worker._PYDANTIC_INSTALLED
-    reload(worker)
+    with patch.dict(modules, {"pydantic": None}):
+        reload(worker_module)
+        assert not worker_module._PYDANTIC_INSTALLED
+    reload(worker_module)
 
 
-@pytest.mark.filterwarnings("ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited:RuntimeWarning")
+@mark.filterwarnings("ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited:RuntimeWarning")
 def test_skill_decorator_warns_on_undefined_type(mocker):
     """
     Tests that the skill decorator logs a warning if a skill_type is not in skill_type_limits.
@@ -51,7 +50,7 @@ def test_skill_decorator_warns_on_undefined_type(mocker):
     )
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_registration_payload(mocker):
     """Tests that the registration payload contains all expected fields."""
     mock_transport = MockTransport(worker_id="test-worker")
@@ -72,13 +71,12 @@ async def test_worker_registration_payload(mocker):
 
     assert registration.worker_id == "custom-id"
     assert registration.worker_type == "custom-type"
-    # Skill registration returns a list of SkillInfo objects, check name
     assert any(s.name == "task1" for s in registration.supported_skills)
     assert registration.installed_artifacts[0].name == "model1"
     assert registration.capabilities.cost_per_skill == {"task1": 1.5}
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_poll_for_tasks_handles_non_204_status(mocker):
     """Tests that _poll_for_tasks handles errors from client."""
     client = mocker.AsyncMock(spec=Transport)
@@ -94,7 +92,7 @@ async def test_poll_for_tasks_handles_non_204_status(mocker):
     client.poll_task.assert_called_once()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_websocket_manager_handles_connection_error(mocker):
     """
     Tests that _listen_to_single_transport handles connection errors and retries (sleeps).
@@ -102,23 +100,19 @@ async def test_websocket_manager_handles_connection_error(mocker):
     worker = Worker()
     client = mocker.AsyncMock(spec=Transport)
 
-    # Mock listen_for_commands to raise exception
     client.listen_for_commands.side_effect = Exception("Connection failed")
 
     mock_sleep = mocker.patch("holonode.worker.sleep", new_callable=mocker.AsyncMock)
+    mock_sleep.side_effect = CancelledError
 
-    # We want to run the loop once, verify sleep is called, then exit.
-    # We can side_effect sleep to raise CancelledError to exit the loop.
-    mock_sleep.side_effect = asyncio.CancelledError
-
-    with pytest.raises(asyncio.CancelledError):
+    with raises(CancelledError):
         await worker._listen_to_single_transport(client)
 
     client.listen_for_commands.assert_called()
     mock_sleep.assert_called_with(5)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_task_permanent_error_on_unsupported_task(mocker):
     """
     Tests that a permanent error is returned for an unsupported task type.
@@ -142,14 +136,12 @@ async def test_process_task_permanent_error_on_unsupported_task(mocker):
     assert result.error.code == PERMANENT_ERROR
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_prepare_task_params_raises_validation_error_for_dataclass():
     """
     Tests that _prepare_task_params raises ParamValidationError for a dataclass with missing fields.
     """
     worker = Worker()
-
-    from dataclasses import dataclass
 
     @dataclass
     class MyDataclass:
@@ -160,11 +152,11 @@ async def test_prepare_task_params_raises_validation_error_for_dataclass():
     async def my_handler(params: MyDataclass):
         pass
 
-    with pytest.raises(ParamValidationError):
+    with raises(ParamValidationError):
         worker._prepare_task_params(my_handler, {"a": 1})
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_task_handles_param_validation_error(mocker):
     """
     Tests that _process_task sends an INVALID_INPUT_ERROR when ParamValidationError is raised.

@@ -1,23 +1,24 @@
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-import os
-import tempfile
+from os import makedirs
+from os.path import exists, join
+from tempfile import mkdtemp
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
+from pytest import fixture, mark
 
 from holonode.config import WorkerConfig
 from holonode.s3 import S3Manager
 
 
-@pytest.fixture
+@fixture
 def s3_manager():
     config = WorkerConfig()
     config.S3_ENDPOINT_URL = "http://localhost:9000"
     config.S3_ACCESS_KEY = "test-key"
     config.S3_SECRET_KEY = "test-secret"
     config.S3_DEFAULT_BUCKET = "test-bucket"
-    config.TASK_FILES_DIR = tempfile.mkdtemp()
+    config.TASK_FILES_DIR = mkdtemp()
     return S3Manager(config)
 
 
@@ -54,7 +55,7 @@ class MockAsyncIterator:
         return self.items
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_store_caching(s3_manager):
     """Tests that S3Store instances are cached by bucket name."""
     with patch("holonode.s3.S3Store", side_effect=lambda *args, **kwargs: MagicMock()) as mock_store:
@@ -67,10 +68,10 @@ async def test_get_store_caching(s3_manager):
         assert mock_store.call_count == 2
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_download_file(s3_manager):
     """Tests downloading a single file via provider."""
-    local_path = os.path.join(s3_manager._config.TASK_FILES_DIR, "downloaded.txt")
+    local_path = join(s3_manager._config.TASK_FILES_DIR, "downloaded.txt")
 
     with (
         patch("holonode.s3.obstore_get", new_callable=AsyncMock) as mock_get,
@@ -84,10 +85,10 @@ async def test_download_file(s3_manager):
         assert f.read() == b"hello world"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_upload_file(s3_manager):
     """Tests uploading a single file via provider."""
-    local_path = os.path.join(s3_manager._config.TASK_FILES_DIR, "to_upload.txt")
+    local_path = join(s3_manager._config.TASK_FILES_DIR, "to_upload.txt")
     with open(local_path, "w") as f:
         f.write("upload me")
 
@@ -102,7 +103,7 @@ async def test_upload_file(s3_manager):
     mock_put.assert_awaited_once()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_params_integration(s3_manager):
     """Tests that process_params correctly triggers downloads via provider."""
     params = {"input_file": "s3://test-bucket/input.jpg"}
@@ -115,10 +116,10 @@ async def test_process_params_integration(s3_manager):
         mock_dl.assert_called_once()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_result_integration(s3_manager):
     """Tests that process_result correctly triggers uploads via provider."""
-    local_path = os.path.join(s3_manager._config.TASK_FILES_DIR, "output.pdf")
+    local_path = join(s3_manager._config.TASK_FILES_DIR, "output.pdf")
     with open(local_path, "wb") as f:
         f.write(b"pdf data")
 
@@ -133,32 +134,30 @@ async def test_process_result_integration(s3_manager):
         assert meta["report"].etag == "res-etag"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_cleanup(s3_manager):
     """Tests that cleanup removes the task directory."""
     task_id = "to-cleanup"
-    task_dir = os.path.join(s3_manager._config.TASK_FILES_DIR, task_id)
-    os.makedirs(task_dir, exist_ok=True)
+    task_dir = join(s3_manager._config.TASK_FILES_DIR, task_id)
+    makedirs(task_dir, exist_ok=True)
 
-    with open(os.path.join(task_dir, "file.txt"), "w") as f:
+    with open(join(task_dir, "file.txt"), "w") as f:
         f.write("temp")
 
     await s3_manager.cleanup(task_id)
-    assert not os.path.exists(task_dir)
+    assert not exists(task_dir)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_delete_methods(s3_manager):
     """Tests delete and delete_dir methods of the provider."""
     with (
         patch("holonode.s3.obstore_delete", new_callable=AsyncMock) as mock_del,
         patch.object(s3_manager._provider, "_get_store", return_value=MagicMock()),
     ):
-        # Test delete single
         await s3_manager._provider.delete("s3://b/file.txt")
         mock_del.assert_called_once()
 
-        # Test delete dir (uses list + delete)
         mock_del.reset_mock()
         mock_list = MagicMock()
         mock_list.collect = AsyncMock(return_value=[MockObjectMeta("dir/f1"), MockObjectMeta("dir/f2")])

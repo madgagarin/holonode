@@ -6,8 +6,8 @@
 
 from dataclasses import dataclass
 
-import pytest
 from pydantic import BaseModel, Field
+from pytest import mark
 from rxon import Transport
 
 from holonode.worker import Worker
@@ -41,7 +41,7 @@ class PydanticModel(BaseModel):
     value: float = Field(gt=0)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_task_with_default_dict(mocker):
     """Tests that a handler with a standard `dict` annotation receives the raw dict."""
     client = mocker.AsyncMock(spec=Transport)
@@ -68,7 +68,7 @@ async def test_process_task_with_default_dict(mocker):
     assert received_params == {"key": "value"}
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_task_with_simple_dataclass_success(mocker):
     """Tests successful instantiation of a simple dataclass."""
     client = mocker.AsyncMock(spec=Transport)
@@ -96,7 +96,7 @@ async def test_process_task_with_simple_dataclass_success(mocker):
     assert received_params.count == 10
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_task_with_dataclass_validation_failure(mocker):
     """Tests that a validation error in a dataclass's __post_init__ is caught."""
     client = mocker.AsyncMock(spec=Transport)
@@ -110,20 +110,19 @@ async def test_process_task_with_dataclass_validation_failure(mocker):
         "job_id": "j1",
         "task_id": "t1",
         "type": "dataclass_validation_task",
-        "params": {"name": "test", "age": 16},  # Invalid age
+        "params": {"name": "test", "age": 16},
         "tracing_context": {},
         "client": client,
     }
     await worker._process_task(task_data)
 
-    # Check if failure result was sent
     client.send_result.assert_called_once()
     payload = client.send_result.call_args.args[0]
     assert payload.status == "failure"
     assert payload.error.code == "INVALID_INPUT_ERROR"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_task_with_pydantic_success(mocker):
     """Tests successful validation and instantiation of a Pydantic model."""
     client = mocker.AsyncMock(spec=Transport)
@@ -151,7 +150,7 @@ async def test_process_task_with_pydantic_success(mocker):
     assert received_params.value == 123.45
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_task_with_pydantic_validation_failure(mocker):
     """Tests that a Pydantic validation error is caught."""
     client = mocker.AsyncMock(spec=Transport)
@@ -165,20 +164,19 @@ async def test_process_task_with_pydantic_validation_failure(mocker):
         "job_id": "j1",
         "task_id": "t1",
         "type": "pydantic_validation_task",
-        "params": {"name": "test", "value": -5},  # Invalid value
+        "params": {"name": "test", "value": -5},
         "tracing_context": {},
         "client": client,
     }
     await worker._process_task(task_data)
 
-    # Check if failure result was sent
     client.send_result.assert_called_once()
     payload = client.send_result.call_args.args[0]
     assert payload.status == "failure"
     assert "expected" in payload.error.message.lower() or "validation" in payload.error.message.lower()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_task_with_dataclass_defaults(mocker):
     """Tests schema extraction for dataclasses with default and optional values."""
     client = mocker.AsyncMock(spec=Transport)
@@ -191,7 +189,6 @@ async def test_process_task_with_dataclass_defaults(mocker):
         received_params = params
         return {"status": "success"}
 
-    # Pass only the required field
     task_data = {
         "job_id": "j1",
         "task_id": "t1",

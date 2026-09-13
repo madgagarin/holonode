@@ -4,9 +4,9 @@
 #
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-import asyncio
+from asyncio import create_task, sleep, wait_for
 
-import pytest
+from pytest import fail, mark
 from rxon.exceptions import RxonError
 from rxon.testing import MockTransport
 
@@ -27,7 +27,7 @@ class FailingTransport(MockTransport):
         return await super().register(registration)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_registration_infinite_retry():
     """Tests that the worker retries registration with backoff until success."""
     config = WorkerConfig()
@@ -37,38 +37,33 @@ async def test_registration_infinite_retry():
     transport = FailingTransport(fail_count=3)
     worker = Worker(config=config, clients=[({"url": "http://test-orchestrator", "weight": 1}, transport)])
 
-    # Run registration task for this client
-    reg_task = asyncio.create_task(worker._register_client_with_retry(transport))
+    reg_task = create_task(worker._register_client_with_retry(transport))
 
-    # Wait for success (initial + 3 retries = 4 calls total)
     try:
-        await asyncio.wait_for(reg_task, timeout=2.0)
+        await wait_for(reg_task, timeout=2.0)
     except TimeoutError:
-        pytest.fail("Registration did not succeed within timeout")
+        fail("Registration did not succeed within timeout")
 
     assert transport.call_count == 4
     assert len(transport.registered) == 1
     assert worker._registered_event.is_set()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_registration_retry_shutdown():
     """Tests that registration retries are interrupted by shutdown signal."""
     config = WorkerConfig()
-    config.REGISTRATION_RETRY_INITIAL_DELAY = 10.0  # Long delay
+    config.REGISTRATION_RETRY_INITIAL_DELAY = 10.0
 
     transport = FailingTransport(fail_count=1)
     worker = Worker(config=config, clients=[({"url": "http://test-orchestrator", "weight": 1}, transport)])
 
-    # Start registration
-    reg_task = asyncio.create_task(worker._register_client_with_retry(transport))
+    reg_task = create_task(worker._register_client_with_retry(transport))
 
-    await asyncio.sleep(0.1)  # Let it fail once
+    await sleep(0.1)
     assert transport.call_count == 1
 
-    # Signal shutdown
     worker._shutdown_event.set()
 
-    # Task should finish quickly
-    await asyncio.wait_for(reg_task, timeout=1.0)
-    assert transport.call_count == 1  # No second call because of shutdown
+    await wait_for(reg_task, timeout=1.0)
+    assert transport.call_count == 1

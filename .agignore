@@ -1,0 +1,54 @@
+# Системные папки и скрытые файлы
+.git/
+.svn/
+.hg/
+.DS_Store
+Thumbs.db
+
+# Логи, дампы памяти и кэш
+*.log
+logs/
+*.sql
+*.sqlite
+.cache/
+.npm/
+.eslintcache
+
+# Папки сборки и зависимостей (главные пожиратели токенов!)
+node_modules/
+bower_components/
+dist/
+build/
+out/
+.next/
+.nuxt/
+target/
+bin/
+obj/
+
+# Виртуальные окружения и библиотеки (Python / Ruby / Go)
+venv/
+.venv/
+env/
+.env/
+vendor/
+.bundle/
+
+# Файлы конфигурации IDE и редакторов
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Большие медиафайлы и документация
+*.mp4
+*.mp3
+*.pdf
+*.zip
+*.tar.gz
+*.rar
+docs/
+

@@ -657,6 +657,8 @@ class Worker:
 
     def _schedule_heartbeat_debounce(self) -> None:
         """Schedules a heartbeat for all clients, respecting their individual cooldowns."""
+        if self._shutdown_event.is_set():
+            return
         for item in self._clients:
             client = item[1] if isinstance(item, tuple) and len(item) == 2 else item
             create_task(self._send_single_heartbeat(client))
@@ -696,6 +698,7 @@ class Worker:
                     self._current_load_by_type[skill_type_for_limit] += 1
                 self._schedule_heartbeat_debounce()
                 task = create_task(self._process_task(task_data_dict))
+                task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
                 self._active_tasks[task_data.task_id] = task
                 return True
         except (RxonRateLimitError, RxonNetworkError) as e:
@@ -748,25 +751,30 @@ class Worker:
                 logger.info("Worker is in DRAINING mode. Stop polling for new tasks.")
                 break
 
-            if current_state["status"] == "busy":
+            if current_state["status"] in ("busy", "full"):
                 await sleep(self._config.IDLE_POLL_DELAY)
                 continue
 
             any_task_found = False
             if self._config.MULTI_ORCHESTRATOR_MODE == "WATERFALL":
                 for _, client in self._clients:
-                    if self._get_current_state()["status"] == "busy":
+                    if self._shutdown_event.is_set() or self._get_current_state()["status"] in ("busy", "full"):
                         break
                     task_found = await self._poll_for_tasks_with_status(client)
                     if task_found:
                         any_task_found = True
                         break
             elif self._config.MULTI_ORCHESTRATOR_MODE == "ROUND_ROBIN":
-                if client := self._get_next_client():
-                    any_task_found = await self._poll_for_tasks_with_status(client)
+                for _ in range(len(self._clients)):
+                    if self._shutdown_event.is_set() or self._get_current_state()["status"] in ("busy", "full"):
+                        break
+                    client = self._get_next_client()
+                    if client and await self._poll_for_tasks_with_status(client):
+                        any_task_found = True
+                        break
             else:
                 for _, client in self._clients:
-                    if self._get_current_state()["status"] == "busy":
+                    if self._shutdown_event.is_set() or self._get_current_state()["status"] in ("busy", "full"):
                         break
                     task_found = await self._poll_for_tasks_with_status(client)
                     if task_found:
@@ -842,39 +850,82 @@ class Worker:
 
     async def _process_task(self, task_data_raw: dict[str, Any]) -> None:
         """Handles the lifecycle of a single task: setup, execution, and reporting."""
-        client: Transport = task_data_raw.pop("client")
-        if "params_metadata" in task_data_raw and task_data_raw["params_metadata"]:
-            task_data_raw["params_metadata"] = {
-                k: from_dict(FileMetadata, v) for k, v in task_data_raw["params_metadata"].items()
-            }
-        task_payload = from_dict(TaskPayload, task_data_raw)
-        task_id, job_id, skill_name = task_payload.task_id, task_payload.job_id, task_payload.type
-
-        secret_key = getenv("ORCHESTRATOR_SECRET_KEY", "")
-        payload_sig = task_payload.sig or getattr(task_payload, "orchestrator_signature", None)
-        if secret_key and payload_sig:
-            ignore_sig_fields = ["sig", "orchestrator_signature"]
-            if not verify_signature(task_payload, payload_sig, secret_key, ignore_fields=ignore_sig_fields):
-                logger.critical(f"Task {task_id} orchestrator signature verification failed!")
-                raise PermissionError(f"Task {task_id} orchestrator signature mismatch: task rejected")
-
-        if task_payload.policy:
-            allowed_skills = (
-                task_payload.policy.get("allowed_skills")
-                if isinstance(task_payload.policy, dict)
-                else getattr(task_payload.policy, "allowed_skills", None)
-            )
-            if allowed_skills is not None and skill_name not in allowed_skills:
-                logger.error(f"Task {task_id} type '{skill_name}' is not in allowed_skills policy {allowed_skills}")
-                raise PermissionError(f"Task type '{skill_name}' is not permitted by task policy")
-
-        params = task_payload.params
-        set_context(task_id=task_id, job_id=job_id)
+        task_id = str(task_data_raw.get("task_id") or "")
+        job_id = str(task_data_raw.get("job_id") or "")
+        skill_name = str(task_data_raw.get("type") or "")
         handler_data = self._skill_handlers.get(skill_name)
         skill_type_for_limit = handler_data.get("type") if handler_data else None
-        result_obj: TaskResult | None = None
 
+        client: Transport | None = task_data_raw.pop("client", None)
+        if client is None:
+            logger.error("Task payload missing required 'client' transport.")
+            if self._active_tasks.pop(task_id, None) is not None:
+                self._current_load = max(0, self._current_load - 1)
+                if skill_type_for_limit and skill_type_for_limit in self._current_load_by_type:
+                    self._current_load_by_type[skill_type_for_limit] = max(
+                        0, self._current_load_by_type[skill_type_for_limit] - 1
+                    )
+                self._schedule_heartbeat_debounce()
+            return
+
+        result_obj: TaskResult | None = None
         start_time = perf_counter()
+
+        try:
+            if "params_metadata" in task_data_raw and task_data_raw["params_metadata"]:
+                task_data_raw["params_metadata"] = {
+                    k: from_dict(FileMetadata, v) for k, v in task_data_raw["params_metadata"].items()
+                }
+            task_payload = from_dict(TaskPayload, task_data_raw)
+            task_id, job_id, skill_name = task_payload.task_id, task_payload.job_id, task_payload.type
+            handler_data = self._skill_handlers.get(skill_name)
+            skill_type_for_limit = handler_data.get("type") if handler_data else None
+
+            secret_key = getenv("ORCHESTRATOR_SECRET_KEY", "") or getattr(self._config, "SECRET_KEY", "")
+            payload_sig = (
+                task_payload.sig
+                or task_data_raw.get("orchestrator_signature")
+                or task_data_raw.get("sig")
+                or getattr(task_payload, "orchestrator_signature", None)
+            )
+            require_sig = getattr(self._config, "REQUIRE_TASK_SIGNATURE", True)
+
+            if secret_key:
+                if not payload_sig:
+                    if require_sig:
+                        logger.critical(f"Task {task_id} missing mandatory orchestrator signature!")
+                        raise PermissionError(f"Task {task_id} missing mandatory orchestrator signature: task rejected")
+                    else:
+                        logger.warning(
+                            f"Task {task_id} missing orchestrator signature (allowed by REQUIRE_TASK_SIGNATURE=False)"
+                        )
+                else:
+                    ignore_sig_fields = ["sig", "orchestrator_signature"]
+                    if not verify_signature(task_payload, payload_sig, secret_key, ignore_fields=ignore_sig_fields):
+                        logger.critical(f"Task {task_id} orchestrator signature verification failed!")
+                        raise PermissionError(f"Task {task_id} orchestrator signature mismatch: task rejected")
+
+            if task_payload.policy:
+                allowed_skills = (
+                    task_payload.policy.get("allowed_skills")
+                    if isinstance(task_payload.policy, dict)
+                    else getattr(task_payload.policy, "allowed_skills", None)
+                )
+                if allowed_skills is not None and skill_name not in allowed_skills:
+                    logger.error(f"Task {task_id} type '{skill_name}' is not in allowed_skills policy {allowed_skills}")
+                    raise PermissionError(f"Task type '{skill_name}' is not permitted by task policy")
+
+            params = task_payload.params
+            set_context(task_id=task_id, job_id=job_id)
+        except Exception:
+            if self._active_tasks.pop(task_id, None) is not None:
+                self._current_load = max(0, self._current_load - 1)
+                if skill_type_for_limit and skill_type_for_limit in self._current_load_by_type:
+                    self._current_load_by_type[skill_type_for_limit] = max(
+                        0, self._current_load_by_type[skill_type_for_limit] - 1
+                    )
+                self._schedule_heartbeat_debounce()
+            raise
 
         step_val = getattr(task_payload, "step", 0)
         depth_val = getattr(task_payload, "depth", 0)
@@ -932,7 +983,6 @@ class Worker:
                 event_id = str(uuid4())
                 timestamp = int(time())
 
-                # Tracing context propagation
                 tracing_context = (task_payload.tracing_context or {}).copy()
 
                 if span and hasattr(span, "get_span_context") and span.get_span_context().is_valid:
@@ -1202,26 +1252,31 @@ class Worker:
                 if span:
                     self._observability.set_span_status_error(span, str(e))
             finally:
-                await self._s3_manager.cleanup(task_id)
-                final_status = result_obj.status if result_obj else "unknown"
-                duration = perf_counter() - start_time
-                self._observability.record_task_finished(skill_name, final_status, duration)
-                if result_obj:
-                    if self._queue_worker_task and not self._queue_worker_task.done():
-                        await self._result_queue.put((client, result_obj))
-                    else:
-                        try:
-                            accepted = await client.send_result(result_obj)
-                            if not accepted:
-                                logger.warning(f"Task {task_id} result was IGNORED by orchestrator.")
-                        except RxonError as e:
-                            logger.error(f"Failed to send task result: {e}")
-                clear_context("task_id", "job_id")
-                self._active_tasks.pop(task_id, None)
-                self._current_load -= 1
-                if skill_type_for_limit:
-                    self._current_load_by_type[skill_type_for_limit] -= 1
-                self._schedule_heartbeat_debounce()
+                try:
+                    with suppress(Exception):
+                        await self._s3_manager.cleanup(task_id)
+                    final_status = result_obj.status if result_obj else "unknown"
+                    duration = perf_counter() - start_time
+                    self._observability.record_task_finished(skill_name, final_status, duration)
+                    if result_obj:
+                        if self._queue_worker_task and not self._queue_worker_task.done():
+                            await self._result_queue.put((client, result_obj))
+                        else:
+                            try:
+                                accepted = await client.send_result(result_obj)
+                                if not accepted:
+                                    logger.warning(f"Task {task_id} result was IGNORED by orchestrator.")
+                            except Exception as e:
+                                logger.error(f"Failed to send task result: {e}")
+                finally:
+                    clear_context("task_id", "job_id")
+                    self._active_tasks.pop(task_id, None)
+                    self._current_load = max(0, self._current_load - 1)
+                    if skill_type_for_limit and skill_type_for_limit in self._current_load_by_type:
+                        self._current_load_by_type[skill_type_for_limit] = max(
+                            0, self._current_load_by_type[skill_type_for_limit] - 1
+                        )
+                    self._schedule_heartbeat_debounce()
 
     def _calculate_contract_hash(self, skills: list[SkillInfo]) -> str:
         """Calculates a hash representing the worker's current 'contract'."""
@@ -1237,8 +1292,11 @@ class Worker:
         devices = None
         if self._config.RESOURCES.get("devices"):
             devices = [
-                HardwareDevice(**{k: v for k, v in d.items() if k in {f.name for f in fields(HardwareDevice)}})
+                d
+                if isinstance(d, HardwareDevice)
+                else HardwareDevice(**{k: v for k, v in d.items() if k in {f.name for f in fields(HardwareDevice)}})
                 for d in self._config.RESOURCES["devices"]
+                if isinstance(d, (dict, HardwareDevice))
             ]
 
         props = (self._config.RESOURCES.get("properties") or {}).copy()
@@ -1275,8 +1333,13 @@ class Worker:
             resources=resources,
             installed_software=self._config.INSTALLED_SOFTWARE,
             installed_artifacts=[
-                InstalledArtifact(**{k: v for k, v in m.items() if k in {f.name for f in fields(InstalledArtifact)}})
+                m
+                if isinstance(m, InstalledArtifact)
+                else InstalledArtifact(
+                    **{k: v for k, v in m.items() if k in {f.name for f in fields(InstalledArtifact)}}
+                )
                 for m in self._config.INSTALLED_ARTIFACTS
+                if isinstance(m, (dict, InstalledArtifact))
             ],
             capabilities=WorkerCapabilities(
                 hostname=self._config.HOSTNAME,
@@ -1330,7 +1393,10 @@ class Worker:
         """Helper to send a heartbeat after a delay, used for debouncing."""
         try:
             await sleep(delay)
-            await self._send_single_heartbeat(client)
+            if not self._shutdown_event.is_set():
+                await self._send_single_heartbeat(client)
+        except Exception:
+            pass
         finally:
             self._debouncing_flags[client] = False
 
@@ -1462,7 +1528,9 @@ class Worker:
         """Sets a custom callback for resource monitoring."""
         self._usage_checker = checker
 
-    def _is_telemetry_changed_significantly(self, current: ResourcesUsage) -> bool:
+    def _is_telemetry_changed_significantly(self, current: ResourcesUsage | None) -> bool:
+        if current is None:
+            return self._last_sent_usage is not None
         if not self._last_sent_usage:
             return True
 
@@ -1671,7 +1739,7 @@ class Worker:
         self._validate_skill_types()
         await self.load_skills()
         if self._config.EXTRA_CAPABILITIES:
-            logger.info(f"Loaded custom capabilities: {self._config.EXTRA_CAPABILITIES}")
+            logger.info(f"Loaded custom capabilities: {list(self._config.EXTRA_CAPABILITIES.keys())}")
         loop = get_running_loop()
         for sig in (SIGINT, SIGTERM):
             with suppress(NotImplementedError):
@@ -1700,7 +1768,6 @@ class Worker:
         try:
             await self._shutdown_event.wait()
         finally:
-            # We shield the cleanup to ensure it completes even if main() is cancelled
             await shield(self._perform_shutdown_cleanup(comm_task, polling_task, token_rotation_task))
 
     async def _perform_shutdown_cleanup(

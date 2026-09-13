@@ -4,7 +4,7 @@
 #
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-import pytest
+from pytest import mark
 
 from holonode import SkillBlueprint, Worker
 
@@ -39,13 +39,12 @@ def test_worker_include_blueprint():
     assert worker._skill_handlers["bp_task"]["func"] == my_handler
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dynamic_skill_loading(tmp_path, monkeypatch):
     """Tests that Worker dynamically loads skills from a directory."""
     skills_dir = tmp_path / "skills"
     skills_dir.mkdir()
 
-    # Create a skill file with a SkillBlueprint
     skill_file_content = """
 from holonode import SkillBlueprint
 
@@ -57,7 +56,6 @@ def dynamic_handler(params):
 """
     (skills_dir / "my_skill.py").write_text(skill_file_content)
 
-    # Create a skill file with a setup(worker) function
     setup_skill_content = """
 def setup(worker):
     @worker.skill("setup_task")
@@ -66,7 +64,6 @@ def setup(worker):
 """
     (skills_dir / "setup_skill.py").write_text(setup_skill_content)
 
-    # Initialize worker with the custom skills directory
     monkeypatch.setenv("WORKER_SKILLS_DIR", str(skills_dir))
     worker = Worker()
     await worker.load_skills()
@@ -74,28 +71,24 @@ def setup(worker):
     assert "dynamic_task" in worker._skill_handlers
     assert "setup_task" in worker._skill_handlers
 
-    # Verify they actually work
     assert worker._skill_handlers["dynamic_task"]["func"](None) == {"status": "dynamic_ok"}
     assert worker._skill_handlers["setup_task"]["func"](None) == {"status": "setup_ok"}
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dynamic_skill_loading_error_handling(tmp_path, monkeypatch, mocker):
     """Tests that loading errors are logged and don't crash the worker."""
     skills_dir = tmp_path / "broken_skills"
     skills_dir.mkdir()
 
-    # Create a broken skill file
     (skills_dir / "broken.py").write_text("this is invalid python code")
 
-    # Mock the logger in the worker module
     mock_logger = mocker.patch("holonode.worker.logger")
 
     monkeypatch.setenv("WORKER_SKILLS_DIR", str(skills_dir))
     worker = Worker()
     await worker.load_skills()
 
-    # Verify that error was called on the logger
     assert mock_logger.error.called
     args, _ = mock_logger.error.call_args
     assert "Failed to load skills from broken.py" in args[0]

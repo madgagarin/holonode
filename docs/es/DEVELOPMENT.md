@@ -1,4 +1,4 @@
-[EN](https://github.com/madgagarin/holonode/blob/main/docs/DEVELOPMENT.md) | ES | [RU](https://github.com/madgagarin/holonode/blob/main/docs/ru/DEVELOPMENT.md)
+[EN](https://github.com/madgagarin/holonode/blob/main/docs/DEVELOPMENT.md) | **ES** | [RU](https://github.com/madgagarin/holonode/blob/main/docs/ru/DEVELOPMENT.md)
 
 # Guía de Desarrollo de Workers
 
@@ -12,7 +12,7 @@ Los Workers creados con el SDK implementan un modelo de interacción híbrido co
 
 - **Modelo PULL para la Obtención de Tareas:** El worker inicia la conexión con el Orquestador y "tira" de las tareas de su cola personal. Esto permite que los Workers operen desde cualquier red (incluyendo detrás de NAT o firewalls corporativos) sin necesidad de una dirección IP pública.
 - **WebSocket para Comunicación en Tiempo Real:** Un canal bidireccional opcional para recibir comandos (ej., cancelación de tareas) y enviar el progreso de ejecución intermedio.
-- **Optimización HLN:** El SDK utiliza el protocolo **Reverse Axon (RXON)**, que reduce el tráfico mediante el hashing de listas de habilidades y el envío de actualizaciones solo cuando ocurren cambios.
+- **Optimización HLN (Red Lógica Holárquica / Holarchical Logic Network):** El SDK utiliza el protocolo [**Reverse Axon (RXON)**](https://github.com/madgagarin/rxon) para [**HLN**](https://github.com/madgagarin/hln), que reduce el tráfico mediante el hashing de listas de habilidades y el envío de actualizaciones solo cuando ocurren cambios.
 - **Robustez de Conexión:**
   - **Orquestadores Independientes:** Cada conexión con un orquestador es gestionada por una tarea separada. El fallo de un servidor no bloquea las comunicaciones con otros.
   - **Reintentos de Registro:** Reintentos infinitos con retroceso exponencial si un orquestador está fuera de línea.
@@ -39,7 +39,6 @@ pip install -e .[dev]
 Cree un archivo Python (ej., `my_worker.py`) e importe la clase `Worker`. El SDK utiliza la **Inferencia Automática** para reducir el código repetitivo.
 
 ```python
-import asyncio
 from holonode import Worker
 from pydantic import BaseModel
 
@@ -157,13 +156,16 @@ Organice las tareas en módulos en el directorio `skills/`.
 from holonode import SkillBlueprint
 from pydantic import BaseModel
 
+
 class ResizeParams(BaseModel):
     w: int
     h: int
 
+
 bp = SkillBlueprint()
 
-@bp.skill() # name="resize", esquema de ResizeParams
+
+@bp.skill()  # name="resize", esquema de ResizeParams
 async def resize(params: ResizeParams):
     return {"status": "success"}
 ```
@@ -180,6 +182,7 @@ El SDK admite la **"Descarga de Carga Útil"** (Payload Offloading) a través de
 
 ```python
 from holonode import Worker, TaskFiles
+
 
 @worker.skill()
 async def process_video(params: dict, files: TaskFiles):
@@ -211,6 +214,7 @@ El SDK proporciona soporte integrado para **trazado distribuido** y **métricas*
 
 ```python
 from holonode import Worker, ObservabilityManager
+
 
 @worker.skill()
 async def monitored_task(params: dict, obs: ObservabilityManager):
@@ -268,12 +272,12 @@ Solicite la inyección de la dependencia `OrchestratorClient` en la firma de su 
 ```python
 from holonode import Worker, OrchestratorClient
 
+
 @worker.skill()
 async def agent_reasoning(params: dict, orchestrator_client: OrchestratorClient):
     # Delegar una subtarea (llamada a herramienta) al orquestador
     subtask_result = await orchestrator_client.call_skill(
-        skill_name="web_search",
-        params={"query": "últimas noticias sobre IA"}
+        skill_name="web_search", params={"query": "últimas noticias sobre IA"}
     )
     # Continuar el razonamiento utilizando el resultado de la herramienta
     return {"final_answer": f"Resultado de la búsqueda: {subtask_result['data']}"}

@@ -4,11 +4,11 @@
 #
 # Copyright (c) 2026 Dmitry Gagarin aka madgagarin
 
-from holonode import types
+from holonode.types import INVALID_INPUT_ERROR, PERMANENT_ERROR, TRANSIENT_ERROR
 
 
 def test_types_constants():
     """Tests that the constants in the types module are defined correctly."""
-    assert types.TRANSIENT_ERROR == "TRANSIENT_ERROR"
-    assert types.PERMANENT_ERROR == "PERMANENT_ERROR"
-    assert types.INVALID_INPUT_ERROR == "INVALID_INPUT_ERROR"
+    assert TRANSIENT_ERROR == "TRANSIENT_ERROR"
+    assert PERMANENT_ERROR == "PERMANENT_ERROR"
+    assert INVALID_INPUT_ERROR == "INVALID_INPUT_ERROR"
