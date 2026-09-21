@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "holonode"
-version = "1.0b20"
+version = "0.56.0"
 description = "Worker SDK for the Holarchy orchestrator."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,11 +21,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "rxon==1.0b17",
+    "rxon==1.0b18",
     "aiohttp~=3.14.3",
     "python-json-logger~=4.2.0",
     "aiofiles~=25.1.0",
-    "orjson~=3.11.9",
 ]
 
 [project.scripts]
@@ -73,7 +72,7 @@ filterwarnings = [
 
 [tool.ruff]
 src = ["src", "tests"]
-target-version = "py311"
+target-version = "0.56.0"
 line-length = 120
 
 [tool.ruff.lint]
@@ -98,7 +97,7 @@ quote-style = "double"
 skip-magic-trailing-comma = false
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "0.56.0"
 packages = ["holonode"]
 disallow_incomplete_defs = true
 disallow_untyped_calls = true

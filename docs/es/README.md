@@ -1,12 +1,12 @@
 [EN](https://github.com/madgagarin/holonode/blob/main/README.md) | **ES** | [RU](https://github.com/madgagarin/holonode/blob/main/docs/ru/README.md)
 
-# Holonode Worker SDK
+# Holonode SDK
 
 [![Licencia: MPL 2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 [![Versión de PyPI](https://img.shields.io/pypi/v/holonode.svg)](https://pypi.org/project/holonode/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 
-**Holonode Worker SDK** es el SDK oficial de alto rendimiento en Python para construir nodos de ejecución distribuidos (Workers / Holones) compatibles con el orquestador **Holarchy**. Actúa como nodo de ejecución (**Cáscara / Shell**) en una **Red Lógica Holárquica (HLN)**, coordinándose con el orquestador (**Fantasma / Ghost**) a través del protocolo **RXON** (Reverse Axon Protocol).
+**Holonode SDK** es el SDK oficial de alto rendimiento en Python para construir nodos de ejecución distribuidos (Workers / Holones) compatibles con el orquestador **Holarchy**. Actúa como nodo de ejecución (**Cáscara / Shell**) en una **Red Lógica Holárquica (HLN)**, coordinándose con el orquestador (**Fantasma / Ghost**) a través del protocolo **RXON** (Reverse Axon Protocol).
 
 El SDK automatiza todas las tareas de bajo nivel: sondeo de tareas (polling), registro dinámico, latidos (heartbeats), gestión de datos pesados en S3, autenticación Zero Trust y cierre ordenado (graceful shutdown).
 
@@ -63,7 +63,7 @@ La arquitectura de Holarchy sigue los principios de una **Red Lógica Holárquic
 
 ## Ecosistema
 
-Holonode Worker SDK es parte integral del ecosistema distribuido de Holarchy:
+Holonode SDK es parte integral del ecosistema distribuido de Holarchy:
 
 - **[Orquestador Holarchy](https://github.com/madgagarin/holarchy)**: Motor de flujos de trabajo de alto rendimiento basado en máquinas de estados para coordinar tareas y blueprints distribuidos.
 - **[Protocolo RXON](https://github.com/madgagarin/rxon)**: Protocolo compartido de conexión inversa ligera para la comunicación entre nodos en la red HLN.
@@ -114,18 +114,24 @@ Holonode Worker SDK es parte integral del ecosistema distribuido de Holarchy:
 ### Uso como Librería
 
 ```python
+from pydantic import BaseModel, Field
 from holonode import OrchestratorClient, TaskFiles, Worker
 
-worker = Worker()
+
+class GreetingParams(BaseModel):
+    nombre: str = Field(default="Mundo", description="Nombre para el saludo")
 
 
-@worker.skill("hola_mundo")
-async def mi_habilidad(params: dict, files: TaskFiles):
-    """Habilidad simple que devuelve un saludo."""
-    return {"message": f"¡Hola, {params.get('nombre', 'Mundo')}!"}
+worker = Worker(worker_type="greeter-service")
 
 
-@worker.skill("ai_agent_reasoning")
+@worker.skill("hola_mundo", risk="low", permissions=["greetings:write"])
+async def mi_habilidad(params: GreetingParams, files: TaskFiles):
+    """El SDK valida automáticamente los datos de la tarea contra GreetingParams."""
+    return {"message": f"¡Hola, {params.nombre}!"}
+
+
+@worker.skill("ai_agent_reasoning", risk="medium", permissions=["ai:reason"])
 async def agent_skill(params: dict, orchestrator_client: OrchestratorClient):
     """Habilidad de agente de IA que delega una subtarea (Tool Use) vía OrchestratorClient."""
     search_result = await orchestrator_client.call_skill("web_search", {"query": params["search_query"]})
@@ -141,6 +147,8 @@ async def manejar_reinicio(comando: dict):
 if __name__ == "__main__":
     worker.run()
 ```
+
+> Para una guía paso a paso, consulte el [Libro de recetas: Desarrollo local de workers](https://github.com/madgagarin/holarchy/blob/main/docs/es/cookbook/local_worker_development.md).
 
 ### Uso mediante CLI
 
@@ -198,7 +206,7 @@ Todos los parámetros pueden configurarse mediante variables de entorno:
 
 ## Observabilidad
 
-Holonode Worker SDK proporciona observabilidad de primer nivel utilizando el estándar **OpenTelemetry**:
+Holonode SDK proporciona observabilidad de primer nivel utilizando el estándar **OpenTelemetry**:
 
 - **Trazado Distribuido:** Los workers extraen el `trace_id` de las tareas y crean spans hijos (`task.{type}`). Todos los eventos y operaciones con S3 comparten el mismo contexto.
 - **Métricas Push OTLP:** Al configurar la variable `OTEL_EXPORTER_OTLP_ENDPOINT`, las métricas se envían directamente al recolector OTLP.

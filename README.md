@@ -1,12 +1,12 @@
 **EN** | [ES](https://github.com/madgagarin/holonode/blob/main/docs/es/README.md) | [RU](https://github.com/madgagarin/holonode/blob/main/docs/ru/README.md)
 
-# Holonode Worker SDK
+# Holonode SDK
 
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 [![PyPI Version](https://img.shields.io/pypi/v/holonode.svg)](https://pypi.org/project/holonode/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 
-**Holonode Worker SDK** is the official high-performance Python SDK for building distributed execution nodes (Workers / Holons) compatible with the **Holarchy** orchestrator. It serves as an execution node (**Shell**) in a **Holarchical Logic Network (HLN)**, coordinating with the orchestrator (**Ghost**) via the **RXON** (Reverse Axon Protocol).
+**Holonode SDK** is the official high-performance Python SDK for building distributed execution nodes (Workers / Holons) compatible with the **Holarchy** orchestrator. It serves as an execution node (**Shell**) in a **Holarchical Logic Network (HLN)**, coordinating with the orchestrator (**Ghost**) via the **RXON** (Reverse Axon Protocol).
 
 The SDK automates all low-level communication concerns: task polling, dynamic registration, heartbeats, S3 payload management, Zero Trust authentication, and graceful shutdown.
 
@@ -63,12 +63,12 @@ The Holarchy architecture follows the principles of a **Holarchical Logic Networ
 
 ## Ecosystem
 
-Holonode Worker SDK is an integral part of the Holarchy distributed ecosystem:
+Holonode SDK is an integral part of the Holarchy distributed ecosystem:
 
 - **[Holarchy Orchestrator](https://github.com/madgagarin/holarchy)**: High-performance state-machine workflow engine coordinating tasks and distributed blueprints.
 - **[RXON Protocol](https://github.com/madgagarin/rxon)**: Shared lightweight reverse-connection protocol powering inter-node communication across the HLN ecosystem.
 - **[HLN (Holarchical Logic Network)](https://github.com/madgagarin/hln)**: Architectural pattern, manifesto, and design specification for self-similar holarchies.
-- **[Holonode Worker SDK](https://github.com/madgagarin/holonode)**: The official Python SDK for building execution workers (this repository).
+- **[Holonode SDK](https://github.com/madgagarin/holonode)**: The official Python SDK for building execution workers (this repository).
 - **[Full Example](https://github.com/madgagarin/holarchy-full-example)**: Reference project demonstrating the orchestrator and workers in action.
 
 ## Installation
@@ -114,18 +114,24 @@ Holonode Worker SDK is an integral part of the Holarchy distributed ecosystem:
 ### Usage as a Library
 
 ```python
+from pydantic import BaseModel, Field
 from holonode import OrchestratorClient, TaskFiles, Worker
 
-worker = Worker()
+
+class GreetingParams(BaseModel):
+    name: str = Field(default="World", description="Name to greet")
 
 
-@worker.skill("hello_world")
-async def my_skill(params: dict, files: TaskFiles):
-    """Simple skill returning a greeting."""
-    return {"message": f"Hello, {params.get('name', 'World')}!"}
+worker = Worker(worker_type="greeter-service")
 
 
-@worker.skill("ai_agent_reasoning")
+@worker.skill("hello_world", risk="low", permissions=["greetings:write"])
+async def my_skill(params: GreetingParams, files: TaskFiles):
+    """The SDK validates incoming task data directly into GreetingParams."""
+    return {"message": f"Hello, {params.name}!"}
+
+
+@worker.skill("ai_agent_reasoning", risk="medium", permissions=["ai:reason"])
 async def agent_skill(params: dict, orchestrator_client: OrchestratorClient):
     """AI agent skill delegating a subtask (tool use) via OrchestratorClient."""
     search_result = await orchestrator_client.call_skill("web_search", {"query": params["search_query"]})
@@ -141,6 +147,8 @@ async def handle_reboot(command: dict):
 if __name__ == "__main__":
     worker.run()
 ```
+
+> For step-by-step guidance, see the [Local Worker Development Cookbook](https://github.com/madgagarin/holarchy/blob/main/docs/cookbook/local_worker_development.md).
 
 ### CLI Usage
 
@@ -198,7 +206,7 @@ All settings can be configured via environment variables:
 
 ## Observability
 
-Holonode Worker SDK provides first-class observability using **OpenTelemetry**:
+Holonode SDK provides first-class observability using **OpenTelemetry**:
 
 - **Distributed Tracing:** Workers extract `trace_id` from tasks and create child spans (`task.{type}`). All emitted events and S3 operations share the same trace.
 - **Push Metrics (OTLP):** When `OTEL_EXPORTER_OTLP_ENDPOINT` is configured, metrics are automatically exported via OTLP.

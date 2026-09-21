@@ -96,6 +96,7 @@ class WorkerConfig:
         self.WORKER_BLOB_CACHE_DIR: str = getenv("WORKER_BLOB_CACHE_DIR", "/tmp/holarchy_cache")
         self.WORKER_TELEMETRY_DEADBAND: float = float(getenv("WORKER_TELEMETRY_DEADBAND", "5.0"))
         self.WORKER_TELEMETRY_FORCE_INTERVAL: float = float(getenv("WORKER_TELEMETRY_FORCE_INTERVAL", "60.0"))
+        self.ENABLE_HUD: bool = getenv("WORKER_ENABLE_HUD", "false").lower() == "true"
 
         self.EXTRA_CAPABILITIES: dict[str, Any] = self._load_extra_from_env()
 

@@ -92,6 +92,7 @@ from rxon.utils import calculate_dict_hash, from_dict, json_dumps, to_dict
 from rxon.validators import is_valid_identifier, validate_identifier
 
 from .config import WorkerConfig
+from .hud import WorkerHUD
 from .logging import clear_context, set_context, setup_logging
 from .observability import ObservabilityManager, propagate
 from .s3 import S3Manager
@@ -307,6 +308,21 @@ class SkillBlueprint:
 
         return decorator
 
+    def get_skills_index(self) -> list[dict[str, Any]]:
+        """Returns the lightweight SkillIndex catalog (<5KB) for all blueprint skills."""
+        indices = []
+        for info, _ in self._skills:
+            if hasattr(info, "to_index"):
+                indices.append(info.to_index())
+            else:
+                indices.append({
+                    "name": getattr(info, "name", ""),
+                    "type": getattr(info, "type", None),
+                    "version": getattr(info, "version", None),
+                    "risk": getattr(info, "risk", "low"),
+                })
+        return indices
+
 
 class OrchestratorClient:
     """
@@ -411,6 +427,7 @@ class Worker:
         self._debouncing_flags: dict[Transport, bool] = {}
         self._heartbeat_cooldown = self._config.HEARTBEAT_COOLDOWN
         self._usage_checker: Callable[[], ResourcesUsage] | None = None
+        self.hud = WorkerHUD(worker_id=self._config.WORKER_ID, enabled=getattr(self._config, "ENABLE_HUD", False))
         if not self._clients and self._http_session:
             self._init_clients()
 
@@ -572,16 +589,56 @@ class Worker:
     def add_to_hot_skills(self, item: str) -> None:
         """Marks a skill or resource identifier as 'hot' (loaded/ready)."""
         self._hot_skills_state.add(item)
+        if hasattr(self, "hud"):
+            self.hud.hot_skills.add(item)
         self._schedule_heartbeat_debounce()
 
     def remove_from_hot_skills(self, item: str) -> None:
         """Removes a skill or resource from the hot list."""
         self._hot_skills_state.discard(item)
+        if hasattr(self, "hud"):
+            self.hud.hot_skills.discard(item)
         self._schedule_heartbeat_debounce()
 
     def get_hot_skills_state(self) -> set[str]:
         """Returns the set of currently hot items."""
         return self._hot_skills_state
+
+    def get_skills_index(self) -> list[dict[str, Any]]:
+        """Returns the lightweight SkillIndex catalog (<5KB) for all registered skills."""
+        indices = []
+        for handler in self._skill_handlers.values():
+            info = handler.get("info")
+            if info:
+                if hasattr(info, "to_index"):
+                    indices.append(info.to_index())
+                else:
+                    indices.append({
+                        "name": getattr(info, "name", ""),
+                        "type": getattr(info, "type", None),
+                        "version": getattr(info, "version", None),
+                        "risk": getattr(info, "risk", "low"),
+                    })
+        return indices
+
+    def get_skill_schema(self, skill_name: str) -> dict[str, Any] | None:
+        """Returns full input/output schemas on demand for a skill."""
+        handler = self._skill_handlers.get(skill_name)
+        if not handler:
+            return None
+        info = handler.get("info")
+        if not info:
+            return None
+        return {
+            "name": getattr(info, "name", skill_name),
+            "type": getattr(info, "type", None),
+            "description": getattr(info, "description", None),
+            "input_schema": getattr(info, "input_schema", None),
+            "output_schema": getattr(info, "output_schema", None),
+            "events_schema": getattr(info, "events_schema", None),
+            "risk": getattr(info, "risk", "low"),
+            "permissions": getattr(info, "permissions", None) or [],
+        }
 
     def _get_current_state(self) -> dict[str, Any]:
         """
@@ -700,6 +757,8 @@ class Worker:
                 task = create_task(self._process_task(task_data_dict))
                 task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
                 self._active_tasks[task_data.task_id] = task
+                if hasattr(self, "hud"):
+                    self.hud.task_started(task_data.task_id, task_data.type)
                 return True
         except (RxonRateLimitError, RxonNetworkError) as e:
             is_rate_limit = isinstance(e, RxonRateLimitError)
@@ -1271,6 +1330,9 @@ class Worker:
                 finally:
                     clear_context("task_id", "job_id")
                     self._active_tasks.pop(task_id, None)
+                    if hasattr(self, "hud"):
+                        is_ok = bool(result_obj and getattr(result_obj, "status", None) == TASK_STATUS_SUCCESS)
+                        self.hud.task_finished(task_id, success=is_ok)
                     self._current_load = max(0, self._current_load - 1)
                     if skill_type_for_limit and skill_type_for_limit in self._current_load_by_type:
                         self._current_load_by_type[skill_type_for_limit] = max(

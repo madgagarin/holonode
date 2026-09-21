@@ -1,12 +1,12 @@
 [EN](https://github.com/madgagarin/holonode/blob/main/README.md) | [ES](https://github.com/madgagarin/holonode/blob/main/docs/es/README.md) | **RU**
 
-# Holonode Worker SDK
+# Holonode SDK
 
 [![Лицензия: MPL 2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 [![Версия PyPI](https://img.shields.io/pypi/v/holonode.svg)](https://pypi.org/project/holonode/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 
-**Holonode Worker SDK** — это официальный высокопроизводительный Python SDK для создания распределенных узлов исполнения (воркеров / холонов), совместимых с оркестратором **Holarchy**. Он выступает в роли исполнительного узла (**Оболочки / Shell**) в **Холархической Логической Сети (HLN)**, координируясь с оркестратором (**Призраком / Ghost**) через протокол **RXON** (Reverse Axon Protocol).
+**Holonode SDK** — это официальный высокопроизводительный Python SDK для создания распределенных узлов исполнения (воркеров / холонов), совместимых с оркестратором **Holarchy**. Он выступает в роли исполнительного узла (**Оболочки / Shell**) в **Холархической Логической Сети (HLN)**, координируясь с оркестратором (**Призраком / Ghost**) через протокол **RXON** (Reverse Axon Protocol).
 
 SDK автоматизирует все низкоуровневые сетевые задачи: опрос задач (polling), динамическую регистрацию, пульс (heartbeats), управление тяжелыми данными в S3, Zero Trust аутентификацию и корректное завершение работы (graceful shutdown).
 
@@ -63,12 +63,12 @@ SDK автоматизирует все низкоуровневые сетев�
 
 ## Экосистема
 
-Holonode Worker SDK является ключевой частью распределенной экосистемы:
+Holonode SDK является ключевой частью распределенной экосистемы:
 
 - **[Оркестратор Holarchy](https://github.com/madgagarin/holarchy)**: Высокопроизводительный движок рабочих процессов на конечных автоматах, координирующий распределенные задачи.
 - **[Протокол RXON](https://github.com/madgagarin/rxon)**: Легковесный протокол обратного соединения, обеспечивающий защищенное межмашинное взаимодействие в сети HLN.
 - **[HLN (Holarchical Logic Network)](https://github.com/madgagarin/hln)**: Архитектурный манифест и спецификация самоподобных холархий.
-- **[Holonode Worker SDK](https://github.com/madgagarin/holonode)**: Официальный SDK на Python для создания исполнительных воркеров (текущий репозиторий).
+- **[Holonode SDK](https://github.com/madgagarin/holonode)**: Официальный SDK на Python для создания исполнительных воркеров (текущий репозиторий).
 - **[Полный пример (Full Example)](https://github.com/madgagarin/holarchy-full-example)**: Готовый проект, демонстрирующий совместную работу оркестратора и воркеров.
 
 ## Установка
@@ -114,18 +114,24 @@ Holonode Worker SDK является ключевой частью распре�
 ### Использование в качестве библиотеки
 
 ```python
+from pydantic import BaseModel, Field
 from holonode import OrchestratorClient, TaskFiles, Worker
 
-worker = Worker()
+
+class GreetingParams(BaseModel):
+    name: str = Field(default="Мир", description="Имя для приветствия")
 
 
-@worker.skill("hello_world")
-async def my_skill(params: dict, files: TaskFiles):
-    """Простой навык, возвращающий приветствие."""
-    return {"message": f"Привет, {params.get('name', 'Мир')}!"}
+worker = Worker(worker_type="greeter-service")
 
 
-@worker.skill("ai_agent_reasoning")
+@worker.skill("hello_world", risk="low", permissions=["greetings:write"])
+async def my_skill(params: GreetingParams, files: TaskFiles):
+    """SDK автоматически валидирует входные данные в GreetingParams."""
+    return {"message": f"Привет, {params.name}!"}
+
+
+@worker.skill("ai_agent_reasoning", risk="medium", permissions=["ai:reason"])
 async def agent_skill(params: dict, orchestrator_client: OrchestratorClient):
     """Навык ИИ-агента, делегирующий подзадачу (Tool Use) через OrchestratorClient."""
     search_result = await orchestrator_client.call_skill("web_search", {"query": params["search_query"]})
@@ -141,6 +147,8 @@ async def handle_reboot(command: dict):
 if __name__ == "__main__":
     worker.run()
 ```
+
+> Пошаговое руководство см. в [Рецепте локальной разработки воркеров](https://github.com/madgagarin/holarchy/blob/main/docs/ru/cookbook/local_worker_development.md).
 
 ### Использование через CLI
 
@@ -198,7 +206,7 @@ worker run --app my_worker:worker --port 9000 --no-health-check
 
 ## Наблюдаемость
 
-Holonode Worker SDK предоставляет полноценную поддержку стандарта **OpenTelemetry**:
+Holonode SDK предоставляет полноценную поддержку стандарта **OpenTelemetry**:
 
 - **Сквозная трассировка:** Воркер извлекает `trace_id` из задачи и создает дочерние спаны (`task.{type}`). Все события задачи и операции с S3 наследуют общий контекст.
 - **Экспорт метрик OTLP:** При наличии переменной `OTEL_EXPORTER_OTLP_ENDPOINT` метрики пушатся напрямую в OTel Collector.

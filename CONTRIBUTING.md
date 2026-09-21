@@ -1,6 +1,6 @@
 **EN** | [ES](https://github.com/madgagarin/holonode/blob/main/docs/es/CONTRIBUTING.md) | [RU](https://github.com/madgagarin/holonode/blob/main/docs/ru/CONTRIBUTING.md)
 
-# Contributing to Holonode Worker SDK
+# Contributing to Holonode SDK
 
 Thank you for helping improve the Shell of our ecosystem!
 
