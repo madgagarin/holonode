@@ -12,7 +12,7 @@ from pytest import mark
 from pythonjsonlogger.json import JsonFormatter
 from rxon.testing import MockTransport
 
-from holonode.logging import _context_filter, clear_context, set_context, setup_logging
+from holonode.logging import ContextFilter, _context_filter, clear_context, set_context, setup_logging
 from holonode.worker import Worker
 
 
@@ -23,6 +23,14 @@ def test_setup_logging_text(monkeypatch):
     root_logger = getLogger()
     handler = root_logger.handlers[0]
     assert isinstance(handler.formatter, Formatter)
+
+
+def test_context_filter_instantiation():
+    f = ContextFilter()
+
+    assert f.context == {}
+    rec = LogRecord("name", INFO, "pathname", 10, "message", None, None)
+    assert f.filter(rec) is True
 
 
 def test_context_filter():

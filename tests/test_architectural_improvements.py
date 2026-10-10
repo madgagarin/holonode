@@ -157,7 +157,7 @@ async def test_orchestrator_client_injection():
     cm_mock = MagicMock()
     cm_mock.__aenter__ = AsyncMock(return_value=response_mock)
     cm_mock.__aexit__ = AsyncMock(return_value=None)
-    transport._session.request = MagicMock(return_value=cm_mock)
+    transport._session.post = MagicMock(return_value=cm_mock)
 
     await worker._process_task(task_data)
 

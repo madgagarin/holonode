@@ -93,14 +93,37 @@ if __name__ == "__main__":
 
 ### Шаг 3: Запуск воркера
 
-Воркер можно запустить напрямую через Python или использовать встроенный CLI для более удобного управления:
+### Шаг 3: Запуск и тестирование воркера
 
+Встроенный CLI предоставляет команды для эксплуатации воркеров и локального тестирования навыков без подключения к оркестратору:
+
+#### Запуск воркера
 ```bash
-# Рекомендуется: запускает воркер и сервер проверки здоровья (порт 8083 по умолчанию)
+# Запуск с сервером health-check на порту 8083 (по умолчанию)
 worker run --app my_worker:worker
 
-# Для разработки (автоматическая перезагрузка при изменении кода)
+# Запуск с терминальным TUI-дашбордом (HUD) в реальном времени
+worker run --app my_worker:worker --hud
+
+# Запуск на выделенном порту без проверки health-check
+worker run --app my_worker:worker --port 9000 --no-health-check
+
+# Режим разработки с автоперезагрузкой при изменении кода
 worker run --app my_worker:worker --reload
+```
+
+#### Локальное тестирование и инспекция
+```bash
+# Локальный запуск навыка в песочнице с мок-файловой системой (без оркестратора)
+worker exec --app my_worker:worker --skill generate_report --params '{"data_source": "db", "format": "json"}'
+worker exec --app my_worker:worker --skill generate_report --params @params.json
+
+# Инспекция зарегистрированных навыков, уровней риска и прав доступа
+worker inspect --app my_worker:worker
+worker inspect --app my_worker:worker --skill generate_report
+
+# Запуск локального веб-стенда для интерактивной отладки через браузер
+worker dev --app my_worker:worker --port 8088
 ```
 
 ### Шаг 4: Настройка соединений и авторизации

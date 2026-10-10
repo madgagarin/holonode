@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
-import asyncio
 from argparse import ArgumentParser, Namespace
+from asyncio import run as asyncio_run
 from importlib import import_module
 from os import getcwd
 from pathlib import Path
@@ -32,7 +32,7 @@ try:
 
     _HAS_WATCHDOG = True
 except ImportError:
-    FileSystemEventHandler = object  # type: ignore[assignment,misc]
+    FileSystemEventHandler: Any = object  # type: ignore[no-redef]
     Observer = None
     _HAS_WATCHDOG = False
 
@@ -69,6 +69,9 @@ def _load_worker(app_spec: str) -> Worker:
 def run_worker(args: Namespace) -> None:
     worker = _load_worker(args.app)
 
+    if getattr(args, "port", None) is not None:
+        worker._config.WORKER_PORT = args.port
+
     if getattr(args, "hud", False):
         worker.hud.enabled = True
 
@@ -86,7 +89,11 @@ def exec_worker(args: Namespace) -> None:
         if not param_file.exists():
             print(f"Error: Parameter file '{param_file}' does not exist.")
             sys_exit(1)
-        params_dict = orjson_loads(param_file.read_bytes())
+        try:
+            params_dict = orjson_loads(param_file.read_bytes())
+        except Exception as e:
+            print(f"Error parsing JSON in parameter file '{param_file}': {e}")
+            sys_exit(1)
     else:
         try:
             params_dict = orjson_loads(raw_params)
@@ -94,7 +101,7 @@ def exec_worker(args: Namespace) -> None:
             print(f"Error parsing JSON params: {e}")
             sys_exit(1)
 
-    result = asyncio.run(
+    result = asyncio_run(
         execute_local_skill(
             worker=worker,
             skill_name=args.skill,
@@ -104,7 +111,7 @@ def exec_worker(args: Namespace) -> None:
         )
     )
 
-    print(orjson_dumps(result, option=OPT_INDENT_2).decode())
+    print(orjson_dumps(result, option=OPT_INDENT_2, default=str).decode())
     if result.get("status") != "success":
         sys_exit(1)
 
@@ -151,20 +158,22 @@ def main() -> None:
     parser = ArgumentParser(description="Holonode CLI")
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
-    # Command: run
     run_parser = subparsers.add_parser("run", help="Run a worker instance")
     run_parser.add_argument("--app", required=True, help="Path to the worker instance (e.g. 'my_module:worker')")
     run_parser.add_argument(
         "--health-check", action="store_true", default=True, help="Enable health check server (default: True)"
     )
     run_parser.add_argument(
-        "--hud", action="store_true", default=False, help="Enable statusline TUI HUD in terminal"
+        "--no-health-check", action="store_false", dest="health_check", help="Disable health check server"
     )
+    run_parser.add_argument(
+        "--port", type=int, default=None, help="Port for the health check server (overrides WORKER_PORT)"
+    )
+    run_parser.add_argument("--hud", action="store_true", default=False, help="Enable statusline TUI HUD in terminal")
     run_parser.add_argument(
         "--reload", action="store_true", help="Restart worker on code changes (requires 'watchdog')"
     )
 
-    # Command: exec
     exec_parser = subparsers.add_parser("exec", help="Execute a single skill locally on mock task files")
     exec_parser.add_argument("--app", required=True, help="Path to worker instance (e.g. 'my_module:worker')")
     exec_parser.add_argument("--skill", required=True, help="Name of skill to execute")
@@ -174,13 +183,11 @@ def main() -> None:
         "--local-dir", default="./.holarchy/local_tasks", help="Base directory for local mock task files"
     )
 
-    # Command: inspect
     inspect_parser = subparsers.add_parser("inspect", help="Inspect registered skills, risks, and permissions")
     inspect_parser.add_argument("--app", required=True, help="Path to worker instance (e.g. 'my_module:worker')")
     inspect_parser.add_argument("--skill", default=None, help="Inspect specific skill schema")
     inspect_parser.add_argument("--json", action="store_true", help="Output skills catalog as JSON")
 
-    # Command: dev
     dev_parser = subparsers.add_parser("dev", help="Start local web testbench for skills debugging")
     dev_parser.add_argument("--app", required=True, help="Path to worker instance (e.g. 'my_module:worker')")
     dev_parser.add_argument("--host", default="127.0.0.1", help="Host to bind dev testbench (default: 127.0.0.1)")
@@ -216,6 +223,10 @@ def main() -> None:
                     new_args = [executable, "-m", "holonode", "run", "--app", self.cmd_args.app]
                     if self.cmd_args.health_check:
                         new_args.append("--health-check")
+                    else:
+                        new_args.append("--no-health-check")
+                    if getattr(self.cmd_args, "port", None) is not None:
+                        new_args.extend(["--port", str(self.cmd_args.port)])
                     if getattr(self.cmd_args, "hud", False):
                         new_args.append("--hud")
 

@@ -5,9 +5,9 @@
 
 from __future__ import annotations
 
-import sys
-import time
 from dataclasses import dataclass, field
+from sys import stdout
+from time import time
 
 
 @dataclass
@@ -19,7 +19,7 @@ class WorkerHUD:
     active_tasks: dict[str, str] = field(default_factory=dict)
     completed_count: int = 0
     failed_count: int = 0
-    start_time: float = field(default_factory=time.time)
+    start_time: float = field(default_factory=time)
     hot_skills: set[str] = field(default_factory=set)
     enabled: bool = False
 
@@ -41,7 +41,7 @@ class WorkerHUD:
 
     def render_line(self) -> str:
         """Renders single-line HUD statusline with ANSI colors."""
-        uptime = int(time.time() - self.start_time)
+        uptime = int(time() - self.start_time)
         uptime_str = f"{uptime // 60:02d}:{uptime % 60:02d}"
         active = len(self.active_tasks)
         status_color = "\033[92m" if self.status == "idle" else ("\033[93m" if self.status == "busy" else "\033[91m")
@@ -61,7 +61,7 @@ class WorkerHUD:
 
     def render_box(self) -> str:
         """Renders multi-line boxed HUD card for inspect/CLI."""
-        uptime = int(time.time() - self.start_time)
+        uptime = int(time() - self.start_time)
         active = len(self.active_tasks)
         active_items = [f"{k[:8]}:{v}" for k, v in list(self.active_tasks.items())[:3]]
         active_str = ", ".join(active_items) if active_items else "none"
@@ -83,8 +83,8 @@ class WorkerHUD:
         """Prints statusline to stdout if enabled."""
         if not self.enabled:
             return
-        sys.stdout.write(f"\r{self.render_line()}")
-        sys.stdout.flush()
+        stdout.write(f"\r{self.render_line()}")
+        stdout.flush()
 
 
 __all__ = ["WorkerHUD"]

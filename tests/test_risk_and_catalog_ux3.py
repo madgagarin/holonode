@@ -37,23 +37,19 @@ def test_skill_registration_with_risk_and_permissions() -> None:
     def ping() -> dict[str, str]:
         return {"status": "pong"}
 
-    # 1. Test get_skills_index()
     index = worker.get_skills_index()
     assert len(index) == 2
     index_by_name = {s["name"]: s for s in index}
 
-    # Verify query_database in index
     db_idx = index_by_name["query_database"]
     assert db_idx["risk"] == "high"
     assert db_idx["name"] == "query_database"
-    assert "input_schema" not in db_idx  # Lightweight index should NOT contain large schema
+    assert "input_schema" not in db_idx
 
-    # Verify ping default risk in index
     ping_idx = index_by_name["ping"]
     assert ping_idx["risk"] == "low"
     assert "input_schema" not in ping_idx
 
-    # 2. Test get_skill_schema() on-demand
     schema = worker.get_skill_schema("query_database")
     assert schema is not None
     assert schema["name"] == "query_database"
@@ -62,7 +58,6 @@ def test_skill_registration_with_risk_and_permissions() -> None:
     assert schema["input_schema"] is not None
     assert schema["description"] == "Executes complex database query."
 
-    # 3. Non-existent skill schema returns None
     assert worker.get_skill_schema("non_existent_skill") is None
 
 

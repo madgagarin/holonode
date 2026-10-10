@@ -58,9 +58,7 @@ class S3BlobProvider(BlobProvider):
 
     def _check_availability(self) -> None:
         if not _HAS_S3:
-            raise RuntimeError(
-                "S3 support is not installed. Please install 'holonode[s3]' to use S3 features."
-            )
+            raise RuntimeError("S3 support is not installed. Please install 'holonode[s3]' to use S3 features.")
 
     def _get_store(self, bucket_name: str) -> S3Store:
         self._check_availability()

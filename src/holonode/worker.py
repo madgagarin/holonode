@@ -25,7 +25,7 @@ from asyncio import (
 )
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import MISSING, is_dataclass, make_dataclass
+from dataclasses import MISSING, asdict, is_dataclass, make_dataclass
 from dataclasses import fields as dc_fields
 from dataclasses import replace as dc_replace
 from datetime import UTC, datetime
@@ -38,6 +38,7 @@ from logging import getLogger
 from os import getenv
 from os.path import join
 from signal import SIGINT, SIGTERM
+from ssl import SSLContext
 from sys import modules
 from time import perf_counter, time
 from types import UnionType
@@ -47,7 +48,8 @@ from uuid import uuid4
 from aiofiles.os import listdir
 from aiofiles.ospath import abspath, exists
 from aiohttp import ClientSession, TCPConnector, web
-from msgspec import Struct
+from msgspec import Struct, convert, to_builtins
+from msgspec import ValidationError as MsgspecValidationError
 from msgspec.structs import fields as struct_fields
 from msgspec.structs import replace as struct_replace
 from rxon import Transport, create_transport
@@ -244,7 +246,7 @@ def _create_dynamic_skill_object(
     if "name" not in full_kwargs:
         full_kwargs["name"] = ""
 
-    return DynamicSkillClass(**full_kwargs)
+    return cast(SkillInfo, DynamicSkillClass(**full_kwargs))
 
 
 class SkillBlueprint:
@@ -315,12 +317,14 @@ class SkillBlueprint:
             if hasattr(info, "to_index"):
                 indices.append(info.to_index())
             else:
-                indices.append({
-                    "name": getattr(info, "name", ""),
-                    "type": getattr(info, "type", None),
-                    "version": getattr(info, "version", None),
-                    "risk": getattr(info, "risk", "low"),
-                })
+                indices.append(
+                    {
+                        "name": getattr(info, "name", ""),
+                        "type": getattr(info, "type", None),
+                        "version": getattr(info, "version", None),
+                        "risk": getattr(info, "risk", "low"),
+                    }
+                )
         return indices
 
 
@@ -340,6 +344,9 @@ class OrchestratorClient:
 
         url = f"{self._client.base_url}/skills/call"
         headers = self._client._headers.copy()
+
+        if not self._client._session:
+            raise RuntimeError("HTTP transport session not initialized.")
 
         async with self._client._session.post(
             url, json={"skill_name": skill_name, "params": params}, headers=headers
@@ -404,7 +411,7 @@ class Worker:
         self._session_is_managed_externally = http_session is not None
         self._shutdown_event = Event()
         self._registered_event = Event()
-        self._ssl_context = None
+        self._ssl_context: SSLContext | None = None
         self._last_synced_skills_hash: str | None = None
         self._result_queue: Queue[tuple[Transport, TaskResult]] = Queue()
         self._queue_worker_task: Task | None = None
@@ -613,12 +620,14 @@ class Worker:
                 if hasattr(info, "to_index"):
                     indices.append(info.to_index())
                 else:
-                    indices.append({
-                        "name": getattr(info, "name", ""),
-                        "type": getattr(info, "type", None),
-                        "version": getattr(info, "version", None),
-                        "risk": getattr(info, "risk", "low"),
-                    })
+                    indices.append(
+                        {
+                            "name": getattr(info, "name", ""),
+                            "type": getattr(info, "type", None),
+                            "version": getattr(info, "version", None),
+                            "risk": getattr(info, "risk", "low"),
+                        }
+                    )
         return indices
 
     def get_skill_schema(self, skill_name: str) -> dict[str, Any] | None:
@@ -827,8 +836,8 @@ class Worker:
                 for _ in range(len(self._clients)):
                     if self._shutdown_event.is_set() or self._get_current_state()["status"] in ("busy", "full"):
                         break
-                    client = self._get_next_client()
-                    if client and await self._poll_for_tasks_with_status(client):
+                    next_client = self._get_next_client()
+                    if next_client and await self._poll_for_tasks_with_status(next_client):
                         any_task_found = True
                         break
             else:
@@ -851,10 +860,19 @@ class Worker:
         params_annotation = params_param.annotation
         if params_annotation is sig.empty or params_annotation is dict:
             return params
+        if isinstance(params_annotation, str) and hasattr(handler, "__globals__"):
+            params_annotation = handler.__globals__.get(params_annotation, params_annotation)
         if _PYDANTIC_INSTALLED and isinstance(params_annotation, type) and issubclass(params_annotation, BaseModel):
             try:
                 return cast(Any, params_annotation).model_validate(params)
             except ValidationError as e:
+                raise ParamValidationError(str(e)) from e
+        if isinstance(params_annotation, type) and (
+            issubclass(params_annotation, Struct) or hasattr(params_annotation, "__struct_fields__")
+        ):
+            try:
+                return convert(params, params_annotation)
+            except MsgspecValidationError as e:
                 raise ParamValidationError(str(e)) from e
         if isinstance(params_annotation, type) and is_dataclass(params_annotation):
             try:
@@ -918,6 +936,8 @@ class Worker:
         client: Transport | None = task_data_raw.pop("client", None)
         if client is None:
             logger.error("Task payload missing required 'client' transport.")
+            if hasattr(self, "hud"):
+                self.hud.task_finished(task_id, success=False)
             if self._active_tasks.pop(task_id, None) is not None:
                 self._current_load = max(0, self._current_load - 1)
                 if skill_type_for_limit and skill_type_for_limit in self._current_load_by_type:
@@ -977,6 +997,8 @@ class Worker:
             params = task_payload.params
             set_context(task_id=task_id, job_id=job_id)
         except Exception:
+            if hasattr(self, "hud"):
+                self.hud.task_finished(task_id, success=False)
             if self._active_tasks.pop(task_id, None) is not None:
                 self._current_load = max(0, self._current_load - 1)
                 if skill_type_for_limit and skill_type_for_limit in self._current_load_by_type:
@@ -1183,6 +1205,19 @@ class Worker:
 
                     if not isinstance(handler_result, dict):
                         handler_result = {"data": handler_result}
+
+                    data_val = handler_result.get("data")
+                    if data_val is not None:
+                        if hasattr(data_val, "model_dump"):
+                            handler_result["data"] = data_val.model_dump()
+                        elif hasattr(data_val, "dict") and callable(getattr(data_val, "dict", None)):
+                            handler_result["data"] = data_val.dict()
+                        elif hasattr(data_val, "__struct_fields__"):
+                            handler_result["data"] = to_builtins(data_val)
+                        elif (is_dataclass(data_val) and not isinstance(data_val, type)) or hasattr(
+                            data_val, "__dataclass_fields__"
+                        ):
+                            handler_result["data"] = asdict(cast(Any, data_val))
 
                     skill_info = handler_data["info"]
                     if skill_info.output_schema:
@@ -1398,7 +1433,10 @@ class Worker:
                 m
                 if isinstance(m, InstalledArtifact)
                 else InstalledArtifact(
-                    **{k: v for k, v in m.items() if k in {f.name for f in fields(InstalledArtifact)}}
+                    **cast(
+                        dict[str, Any],
+                        {k: v for k, v in m.items() if k in {f.name for f in fields(InstalledArtifact)}},
+                    )
                 )
                 for m in self._config.INSTALLED_ARTIFACTS
                 if isinstance(m, (dict, InstalledArtifact))
@@ -1930,7 +1968,7 @@ class Worker:
         app.router.add_get("/health", health_handler)
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", self._config.WORKER_PORT)
+        site = web.TCPSite(runner, "0.0.0.0", self._config.WORKER_PORT)  # nosec B104
         await site.start()
         await self._shutdown_event.wait()
         await runner.cleanup()

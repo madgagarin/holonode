@@ -40,7 +40,7 @@ El SDK automatiza todas las tareas de bajo nivel: sondeo de tareas (polling), re
 
 ## Tabla de Contenidos
 
-- [Concepto Principal: Holarquía, Fantasma y Cáscara](#concepto-principal-holarquía-fantasma-y-cáscara)
+- [Arquitectura Central: Orquestadores y Workers](#arquitectura-central-orquestadores-y-workers)
 - [Ecosistema](#ecosistema)
 - [Instalación](#instalación)
 - [Inicio Rápido](#inicio-rápido)
@@ -53,13 +53,13 @@ El SDK automatiza todas las tareas de bajo nivel: sondeo de tareas (polling), re
 - [Contribución](#contribución)
 - [Licencia](#licencia)
 
-## Concepto Principal: Holarquía, Fantasma y Cáscara
+## Arquitectura Central: Orquestadores y Workers
 
-La arquitectura de Holarchy sigue los principios de una **Red Lógica Holárquica (HLN)**:
+Holonode SDK implementa la capa de ejecución de una **Red Lógica Holárquica (HLN)**:
 
-- **Orquestador (El Fantasma / The Ghost / Director):** Administra las máquinas de estado de flujos de trabajo (Blueprints), rastrea el estado global y coordina los trabajos. Nunca abre conexiones salientes hacia los workers.
-- **Worker (La Cáscara / The Shell / Músculo):** Una unidad de ejecución autónoma y especializada (**Holón**). Se conecta al Orquestador de abajo hacia arriba mediante **RXON**, sondea tareas, las ejecuta en entornos aislados y entrega resultados.
-- **Shell-Stacking (Principio de Matrioshka):** Dado que los workers y orquestadores comparten interfaces estandarizadas, un orquestador completo puede envolverse dentro de la cáscara de un worker. Esto permite construir redes fractales autosimilares (**Holarquías**) con niveles infinitos de profundidad.
+- **Orquestador**: Gestiona las máquinas de estado de flujos de trabajo (Blueprints), rastrea el ciclo de vida de los trabajos y coordina tareas. Opera como un servidor HTTP pasivo y no inicia conexiones salientes hacia los workers.
+- **Worker**: Nodo de ejecución autónomo. Se conecta al orquestador mediante sondeo inverso por HTTP, registra habilidades y recursos disponibles, extrae tareas asignadas hacia espacios de trabajo aislados y publica resultados de forma asíncrona.
+- **Composición Jerárquica**: Los contratos estandarizados permiten envolver una instancia de orquestador dentro de la interfaz de un worker, habilitando la delegación recursiva de tareas en clústeres distribuidos.
 
 ## Ecosistema
 
@@ -152,17 +152,32 @@ if __name__ == "__main__":
 
 ### Uso mediante CLI
 
-El SDK incluye una herramienta CLI integrada para gestionar el ciclo de vida del worker, sondas de salud y recarga automática durante el desarrollo:
+El SDK incluye una herramienta CLI para gestionar workers, inspeccionar habilidades y depurar localmente:
 
 ```bash
-# Ejecutar el worker con servidor de comprobación de salud en el puerto 8083 (predeterminado)
+# Ejecutar el worker con servidor de comprobación de salud (puerto 8083 por defecto)
 worker run --app my_worker:worker
+
+# Ejecutar con panel TUI (HUD) en tiempo real en la terminal
+worker run --app my_worker:worker --hud
+
+# Ejecutar en un puerto personalizado sin servidor de comprobación de salud
+worker run --app my_worker:worker --port 9000 --no-health-check
 
 # Modo de desarrollo con recarga automática al modificar el código
 worker run --app my_worker:worker --reload
 
-# Ejecutar en un puerto personalizado sin sonda de comprobación de salud
-worker run --app my_worker:worker --port 9000 --no-health-check
+# Ejecutar una habilidad localmente en un entorno aislado (sin necesidad de orquestador)
+worker exec --app my_worker:worker --skill hola_mundo --params '{"nombre": "Alicia"}'
+worker exec --app my_worker:worker --skill hola_mundo --params @params.json
+
+# Inspeccionar habilidades registradas, niveles de riesgo y permisos
+worker inspect --app my_worker:worker
+worker inspect --app my_worker:worker --json
+worker inspect --app my_worker:worker --skill hola_mundo
+
+# Iniciar banco de pruebas web local para depuración manual de habilidades
+worker dev --app my_worker:worker --port 8088
 ```
 
 ## Referencia de Configuración
@@ -177,6 +192,7 @@ Todos los parámetros pueden configurarse mediante variables de entorno:
 | `WORKER_ID` | String | Autogenerado | Identificador único de la instancia del worker |
 | `WORKER_TYPE` | String | `generic-cpu-worker` | Etiqueta de tipo para emparejamiento de habilidades |
 | `WORKER_PORT` | Integer | `8083` | Puerto para la sonda de verificación HTTP (`/health`) |
+| `WORKER_ENABLE_HUD` | Boolean | `False` | Habilitar panel de estado TUI (HUD) en la terminal |
 | `WORKER_TOKEN` | String | `None` | Token secreto para la firma obligatoria HMAC-SHA256 de mensajes (Zero Trust) |
 | `ORCHESTRATOR_SECRET_KEY` | String | `None` | Clave secreta para verificar la firma de tareas entrantes del orquestador (`sig`) |
 | `REQUIRE_TASK_SIGNATURE` | Boolean | `True` | Exigir firma válida en tareas entrantes si la clave secreta está configurada |

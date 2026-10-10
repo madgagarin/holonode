@@ -10,6 +10,8 @@ from _socket import gaierror, gethostbyname, gethostname
 from contextlib import suppress
 from logging import getLogger
 from os import environ, getenv
+from os.path import join
+from tempfile import gettempdir
 from typing import Any, cast
 from uuid import uuid4
 
@@ -63,7 +65,7 @@ class WorkerConfig:
             default=[],
         )
 
-        self.TASK_FILES_DIR: str = getenv("TASK_FILES_DIR", "/tmp/payloads")
+        self.TASK_FILES_DIR: str = getenv("TASK_FILES_DIR", join(gettempdir(), "payloads"))
         self.S3_ENDPOINT_URL: str | None = getenv("S3_ENDPOINT_URL")
         self.S3_ACCESS_KEY: str | None = getenv("S3_ACCESS_KEY")
         self.S3_SECRET_KEY: str | None = getenv("S3_SECRET_KEY")
@@ -93,7 +95,7 @@ class WorkerConfig:
         self.WORKER_SKILLS_DIR: str = getenv("WORKER_SKILLS_DIR", "skills")
         self.STRICT_EVENT_VALIDATION: bool = getenv("STRICT_EVENT_VALIDATION", "true").lower() == "true"
         self.WORKER_ENABLE_METRICS: bool = getenv("WORKER_ENABLE_METRICS", "false").lower() == "true"
-        self.WORKER_BLOB_CACHE_DIR: str = getenv("WORKER_BLOB_CACHE_DIR", "/tmp/holarchy_cache")
+        self.WORKER_BLOB_CACHE_DIR: str = getenv("WORKER_BLOB_CACHE_DIR", join(gettempdir(), "holarchy_cache"))
         self.WORKER_TELEMETRY_DEADBAND: float = float(getenv("WORKER_TELEMETRY_DEADBAND", "5.0"))
         self.WORKER_TELEMETRY_FORCE_INTERVAL: float = float(getenv("WORKER_TELEMETRY_FORCE_INTERVAL", "60.0"))
         self.ENABLE_HUD: bool = getenv("WORKER_ENABLE_HUD", "false").lower() == "true"
@@ -119,8 +121,20 @@ class WorkerConfig:
     def validate(self) -> None:
         """Validates critical configuration parameters."""
         validate_identifier(self.WORKER_ID, "WORKER_ID")
-        if self.WORKER_TOKEN == "your-secret-worker-token":
-            logger.warning("WORKER_TOKEN is set to the default value. Tasks might fail authentication.")
+
+        env_mode = (getenv("ENVIRONMENT") or getenv("ENV") or "development").lower()
+        if env_mode in ("production", "prod"):
+            if self.WORKER_TOKEN == "your-secret-worker-token":
+                raise ValueError(
+                    "Insecure production configuration: WORKER_TOKEN must be set explicitly and not use defaults."
+                )
+            if self.REQUIRE_TASK_SIGNATURE and not self.SECRET_KEY:
+                raise ValueError(
+                    "Insecure production configuration: SECRET_KEY must be set when REQUIRE_TASK_SIGNATURE is enabled."
+                )
+        else:
+            if self.WORKER_TOKEN == "your-secret-worker-token":
+                logger.warning("WORKER_TOKEN is set to the default value. Tasks might fail authentication.")
 
         if not self.ORCHESTRATORS:
             raise ValueError("No orchestrators configured.")

@@ -93,14 +93,37 @@ if __name__ == "__main__":
 
 ### Paso 3: Ejecutar el Worker
 
-Puede ejecutar el worker directamente a través de Python o usar la CLI integrada para un mejor control:
+### Paso 3: Ejecución y Pruebas del Worker
 
+La CLI integrada proporciona comandos para ejecutar workers en producción y probar habilidades localmente sin necesidad de un orquestador:
+
+#### Ejecutar el Worker
 ```bash
-# Recomendado: ejecuta el worker y habilita el servidor de comprobación de salud (puerto 8083 por defecto)
+# Ejecutar con servidor de comprobación de salud en el puerto 8083 (por defecto)
 worker run --app my_worker:worker
 
-# Para el desarrollo (reinicio automático en cambios de código)
+# Ejecutar con panel TUI (HUD) en tiempo real en la terminal
+worker run --app my_worker:worker --hud
+
+# Ejecutar en un puerto personalizado sin comprobación de salud
+worker run --app my_worker:worker --port 9000 --no-health-check
+
+# Modo de desarrollo con recarga automática al modificar el código
 worker run --app my_worker:worker --reload
+```
+
+#### Pruebas Locales e Introspección
+```bash
+# Ejecutar una habilidad localmente contra TaskFiles simulados (sin orquestador)
+worker exec --app my_worker:worker --skill generate_report --params '{"data_source": "db", "format": "json"}'
+worker exec --app my_worker:worker --skill generate_report --params @params.json
+
+# Inspeccionar el catálogo de habilidades registradas, riesgos y permisos
+worker inspect --app my_worker:worker
+worker inspect --app my_worker:worker --skill generate_report
+
+# Iniciar banco de pruebas web local
+worker dev --app my_worker:worker --port 8088
 ```
 
 ### Paso 4: Configuración de Conexión y Autenticación

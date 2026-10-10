@@ -92,16 +92,37 @@ if __name__ == "__main__":
     worker.run()
 ```
 
-### Step 3: Run the Worker
+### Step 3: Run and Test the Worker
 
-You can run the worker directly via Python or use the integrated CLI for better control:
+The SDK CLI provides commands for running workers in production and testing skills locally without an orchestrator:
 
+#### Running the Worker
 ```bash
-# Recommended: runs the worker and enables the health check server (port 8083 by default)
+# Run with health check server on port 8083 (default)
 worker run --app my_worker:worker
 
-# For development (auto-reload on code changes)
+# Run with terminal statusline HUD
+worker run --app my_worker:worker --hud
+
+# Run on a custom port without health check
+worker run --app my_worker:worker --port 9000 --no-health-check
+
+# Run with auto-reload on code changes
 worker run --app my_worker:worker --reload
+```
+
+#### Local Testing & Introspection
+```bash
+# Execute a skill locally against mock TaskFiles (no orchestrator required)
+worker exec --app my_worker:worker --skill generate_report --params '{"data_source": "db", "format": "json"}'
+worker exec --app my_worker:worker --skill generate_report --params @params.json
+
+# Inspect registered skills catalog, risk levels, and permissions
+worker inspect --app my_worker:worker
+worker inspect --app my_worker:worker --skill generate_report
+
+# Launch local browser testbench
+worker dev --app my_worker:worker --port 8088
 ```
 
 ### Step 4: Connection & Auth Configuration

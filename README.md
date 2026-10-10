@@ -40,7 +40,7 @@ The SDK automates all low-level communication concerns: task polling, dynamic re
 
 ## Table of Contents
 
-- [Core Concept: Holarchy, Ghost, and Shell](#core-concept-holarchy-ghost-and-shell)
+- [Core Architecture: Orchestrators and Workers](#core-architecture-orchestrators-and-workers)
 - [Ecosystem](#ecosystem)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -53,13 +53,13 @@ The SDK automates all low-level communication concerns: task polling, dynamic re
 - [Contributing](#contributing)
 - [License](#license)
 
-## Core Concept: Holarchy, Ghost, and Shell
+## Core Architecture: Orchestrators and Workers
 
-The Holarchy architecture follows the principles of a **Holarchical Logic Network (HLN)**:
+Holonode SDK implements the execution tier of a **Holarchical Logic Network (HLN)**:
 
-- **Orchestrator (The Ghost / Director):** Manages high-level workflow state machines (Blueprints), tracks execution states, and coordinates jobs. It never initiates outbound network connections to workers.
-- **Worker (The Shell / Muscle):** A specialized, autonomous execution unit (**Holon**). It connects to the Orchestrator from the bottom up via **RXON**, polls tasks, executes them in isolated environments, and returns results.
-- **Shell-Stacking (Matryoshka):** Because workers and orchestrators adhere to standardized interfaces, an entire Orchestrator can be wrapped inside a Worker Shell. This enables the construction of recursive, self-similar fractal networks (**Holarchies**) of arbitrary depth.
+- **Orchestrator**: Manages workflow state machines (Blueprints), tracks job lifecycles, and coordinates tasks. The orchestrator acts as a passive HTTP server and never initiates outbound connections to workers.
+- **Worker**: An autonomous execution node. It establishes reverse HTTP polling connections to the orchestrator, registers supported skills and hardware capabilities, pulls assigned tasks into isolated workspaces, and posts results asynchronously.
+- **Hierarchical Composition**: Standardized contracts allow an entire orchestrator instance to be wrapped inside a worker interface, enabling recursive multi-level task delegation across distributed clusters.
 
 ## Ecosystem
 
@@ -152,17 +152,32 @@ if __name__ == "__main__":
 
 ### CLI Usage
 
-The SDK includes a built-in CLI tool for managing worker lifecycles, health probes, and live-reload during development:
+The SDK includes a built-in CLI for running workers, inspecting skills, and local debugging:
 
 ```bash
-# Run the worker with health-check server on port 8083 (default)
+# Run the worker with health-check server (port 8083 by default)
 worker run --app my_worker:worker
 
-# Run in development mode with automatic reload on code changes
+# Run with terminal statusline HUD
+worker run --app my_worker:worker --hud
+
+# Run on a custom port without health check
+worker run --app my_worker:worker --port 9000 --no-health-check
+
+# Run with auto-reload on code changes
 worker run --app my_worker:worker --reload
 
-# Run on a custom port without the health-check server
-worker run --app my_worker:worker --port 9000 --no-health-check
+# Execute a single skill locally in an isolated sandbox (no orchestrator required)
+worker exec --app my_worker:worker --skill hello_world --params '{"name": "Alice"}'
+worker exec --app my_worker:worker --skill hello_world --params @params.json
+
+# Inspect registered skills, risk levels, and permissions
+worker inspect --app my_worker:worker
+worker inspect --app my_worker:worker --json
+worker inspect --app my_worker:worker --skill hello_world
+
+# Start local web testbench for manual skill testing
+worker dev --app my_worker:worker --port 8088
 ```
 
 ## Configuration Reference
@@ -177,6 +192,7 @@ All settings can be configured via environment variables:
 | `WORKER_ID` | String | Auto-generated | Unique identifier for the worker instance |
 | `WORKER_TYPE` | String | `generic-cpu-worker` | Type tag for skill matching and targeting |
 | `WORKER_PORT` | Integer | `8083` | Port for the built-in HTTP health check probe (`/health`) |
+| `WORKER_ENABLE_HUD` | Boolean | `False` | Enable statusline TUI HUD in terminal |
 | `WORKER_TOKEN` | String | `None` | Secret token used for HMAC-SHA256 message signing (Zero Trust) |
 | `ORCHESTRATOR_SECRET_KEY` | String | `None` | Secret key used to verify incoming task signatures (`sig`) |
 | `REQUIRE_TASK_SIGNATURE` | Boolean | `True` | Enforce signature verification when `ORCHESTRATOR_SECRET_KEY` is set |

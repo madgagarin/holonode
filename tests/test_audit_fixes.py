@@ -21,7 +21,7 @@ from holonode.worker import Worker
 
 @mark.asyncio
 async def test_worker_signature_mandatory_when_secret_key_set(monkeypatch):
-    """WRK-SEC-1: Mandatory signature enforcement."""
+    """NODE-SEC-1: Mandatory signature enforcement."""
     config = MagicMock()
     config.WORKER_ID = "worker-1"
     config.SECRET_KEY = "test_secret_key"
@@ -70,7 +70,7 @@ async def test_worker_signature_mandatory_when_secret_key_set(monkeypatch):
 
 @mark.asyncio
 async def test_task_files_path_traversal_prevention():
-    """WRK-SEC-2: Path traversal prevention in TaskFiles."""
+    """NODE-SEC-2: Path traversal prevention in TaskFiles."""
     with TemporaryDirectory() as tmp_dir:
         task_dir = join(tmp_dir, "task_123")
         task_files = TaskFiles(task_dir=task_dir, task_id="task_123")
@@ -96,7 +96,7 @@ async def test_task_files_path_traversal_prevention():
 
 @mark.asyncio
 async def test_s3_manager_parallel_download_concurrency():
-    """WRK-CNC-1: Parallel cached download race condition prevention."""
+    """NODE-CNC-1: Parallel cached download race condition prevention."""
     with TemporaryDirectory() as tmp_cache, TemporaryDirectory() as tmp_files:
         config = MagicMock()
         config.WORKER_BLOB_CACHE_DIR = tmp_cache
@@ -131,7 +131,7 @@ async def test_s3_manager_parallel_download_concurrency():
 
 
 def test_worker_extra_capabilities_secret_not_leaked():
-    """WRK-SEC-3: Sensitive values in EXTRA_CAPABILITIES are not printed in logs."""
+    """NODE-SEC-3: Sensitive values in EXTRA_CAPABILITIES are not printed in logs."""
     log_capture = StringIO()
     handler = StreamHandler(log_capture)
     worker_logger = getLogger("holonode.worker")
